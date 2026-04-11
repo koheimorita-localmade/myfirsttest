@@ -17,7 +17,7 @@ const LANG_NAMES = {
     ar: "العربية (アラビア語)",
 };
 
-const GEMINI_MODEL = "gemini-2.0-flash";
+const GEMINI_MODEL = "gemini-2.5-flash";
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 const STORAGE_KEY_API = "gemini_api_key";
 const STORAGE_KEY_HISTORY = "translation_history";
