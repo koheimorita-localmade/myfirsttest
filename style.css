@@ -361,10 +361,10 @@ textarea::placeholder {
 
 .style-tab {
     flex: 1;
-    padding: 10px 8px;
+    padding: 10px 4px;
     background: none;
     border: none;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     font-family: inherit;
     color: var(--text-secondary);

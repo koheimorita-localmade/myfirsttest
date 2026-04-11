@@ -80,8 +80,8 @@ let recognition = null;
 let isRecording = false;
 let currentTargetLang = null;
 
-// Translation cache: { normal, casual, formal, notes }
-let translationCache = { normal: "", casual: "", formal: "", notes: "" };
+// Translation cache: { normal, casual, formal, advanced, notes }
+let translationCache = { normal: "", casual: "", formal: "", advanced: "", notes: "" };
 let activeStyle = "normal";
 let lastSourceText = "";
 let lastTargetLang = "";
@@ -154,7 +154,7 @@ function clearInput() {
     sourceText.value = "";
     onSourceInput();
     resultContainer.style.display = "none";
-    translationCache = { normal: "", casual: "", formal: "", notes: "" };
+    translationCache = { normal: "", casual: "", formal: "", advanced: "", notes: "" };
     sourceText.focus();
 }
 
@@ -225,6 +225,7 @@ async function fetchSingleStyle(style, text, tgtLang) {
             normal: "standard/literal translation",
             casual: "casual, colloquial, friendly tone",
             formal: "formal, polite, business-appropriate tone",
+            advanced: "natural native-like expression using phrasal verbs, idioms, and colloquial phrases",
         }[style];
 
         const langContext = srcLang === "auto"
@@ -263,7 +264,7 @@ async function handleTranslate() {
     lastTargetLang = tgtLang;
 
     // Reset cache
-    translationCache = { normal: "", casual: "", formal: "", notes: "" };
+    translationCache = { normal: "", casual: "", formal: "", advanced: "", notes: "" };
     activeStyle = "normal";
     styleTabs.forEach((t) => t.classList.toggle("active", t.dataset.style === "normal"));
 
@@ -282,17 +283,18 @@ async function handleTranslate() {
             ? `the following text to ${tgtName}`
             : `the following text from ${srcName} to ${tgtName}`;
 
-        // Fetch all 3 styles + learning notes in a single API call
+        // Fetch all 4 styles + learning notes in a single API call
         const prompt = `You are a professional translator and language tutor.
 
-Translate ${langContext} in 3 styles, then provide brief learning notes.
+Translate ${langContext} in 4 styles, then provide learning notes that analyze the ORIGINAL SOURCE text.
 
 Respond in this exact JSON format (no markdown code fences):
 {
-  "normal": "standard/literal translation here",
-  "casual": "casual, colloquial, friendly translation here",
-  "formal": "formal, polite, business translation here",
-  "notes": "2-3 brief learning tips in Japanese for a language learner. Cover key vocabulary, grammar points, or cultural nuances. Use HTML: <p> for paragraphs, <strong> for important terms."
+  "normal": "standard/literal translation",
+  "casual": "casual, colloquial, friendly translation",
+  "formal": "formal, polite, business-appropriate translation",
+  "advanced": "natural native-like translation that actively uses phrasal verbs, idioms, and expressions a native speaker would prefer. Show alternative phrasing that builds vocabulary.",
+  "notes": "2-3 brief learning tips IN JAPANESE that analyze the ORIGINAL SOURCE TEXT (the input language, NOT the translation). Explain the grammar structures, key vocabulary, useful phrases, and any idioms used in the source text so the learner can better understand the original language. Use HTML: <p> for paragraphs, <strong> for important terms."
 }
 
 Text to translate:
@@ -307,6 +309,7 @@ ${text}`;
         translationCache.normal = parsed.normal || "";
         translationCache.casual = parsed.casual || "";
         translationCache.formal = parsed.formal || "";
+        translationCache.advanced = parsed.advanced || "";
         translationCache.notes = parsed.notes || "";
 
         resultText.textContent = translationCache[activeStyle] || translationCache.normal;
