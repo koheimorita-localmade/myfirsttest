@@ -1180,3 +1180,37 @@ textarea::placeholder {
     color: var(--primary);
 }
 
+/* =====================================
+   Pill group (selector)
+   ===================================== */
+.pill-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.pill-option {
+    padding: 10px 18px;
+    border: 1.5px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all var(--transition);
+    min-width: 60px;
+    text-align: center;
+}
+
+.pill-option:hover {
+    border-color: var(--primary);
+}
+
+.pill-option.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+

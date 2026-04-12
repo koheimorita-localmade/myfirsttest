@@ -1065,6 +1065,27 @@ async function saveGasUrl() {
 function loadAutoplayDelay() {
     const stored = localStorage.getItem(STORAGE_KEY_AUTOPLAY_DELAY);
     autoplayDelaySelect.value = stored || String(DEFAULT_AUTOPLAY_DELAY);
+    renderAutoplayDelayPills();
+}
+
+function renderAutoplayDelayPills() {
+    const container = document.getElementById("autoplay-delay-pills");
+    if (!container) return;
+    const values = [5, 10, 15, 20, 30, 45, 60];
+    const current = parseInt(autoplayDelaySelect.value) || DEFAULT_AUTOPLAY_DELAY;
+    container.innerHTML = "";
+    values.forEach((v) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "pill-option" + (v === current ? " active" : "");
+        btn.textContent = `${v}秒`;
+        btn.addEventListener("click", () => {
+            autoplayDelaySelect.value = String(v);
+            localStorage.setItem(STORAGE_KEY_AUTOPLAY_DELAY, String(v));
+            renderAutoplayDelayPills();
+        });
+        container.appendChild(btn);
+    });
 }
 
 async function gasGet(action, params = {}) {
