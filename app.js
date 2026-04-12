@@ -996,6 +996,12 @@ function getApiKey() {
 }
 
 // ---- Utilities ----
+function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = String(str == null ? "" : str);
+    return div.innerHTML;
+}
+
 function showToast(message) {
     const existing = document.querySelector(".toast");
     if (existing) existing.remove();
