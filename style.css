@@ -666,3 +666,291 @@ textarea::placeholder {
         padding-top: 12px;
     }
 }
+
+/* =====================================
+   Mode Navigation
+   ===================================== */
+.mode-nav {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 16px;
+    padding: 4px;
+    background: var(--border);
+    border-radius: var(--radius);
+}
+
+.mode-tab {
+    flex: 1;
+    padding: 9px 8px;
+    background: none;
+    border: none;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: 8px;
+    transition: all var(--transition);
+}
+
+.mode-tab.active {
+    background: var(--surface);
+    color: var(--primary);
+    box-shadow: var(--shadow);
+}
+
+.mode-view {
+    animation: fadeIn 0.2s ease;
+}
+
+.placeholder-view {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-secondary);
+}
+
+.placeholder-view h2 {
+    margin-top: 16px;
+    margin-bottom: 8px;
+    font-size: 18px;
+    color: var(--text);
+}
+
+.placeholder-text {
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+/* =====================================
+   Cards View
+   ===================================== */
+.cards-header {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.cards-stats {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.cards-count {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.cards-search {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 15px;
+    font-family: inherit;
+    background: var(--surface);
+}
+
+.cards-search:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.cards-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.card-item {
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.card-item:hover {
+    border-color: var(--primary);
+    box-shadow: var(--shadow);
+}
+
+.card-pair-tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--primary);
+    background: var(--primary-light);
+    padding: 2px 8px;
+    border-radius: 999px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.card-style-tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--border);
+    padding: 2px 8px;
+    border-radius: 999px;
+    margin-bottom: 6px;
+    margin-left: 4px;
+}
+
+.card-text-a {
+    font-size: 14px;
+    color: var(--text);
+    margin-bottom: 3px;
+    line-height: 1.5;
+    word-break: break-word;
+}
+
+.card-text-b {
+    font-size: 14px;
+    color: var(--primary);
+    line-height: 1.5;
+    word-break: break-word;
+}
+
+.card-meta {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 6px;
+}
+
+.cards-empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.7;
+}
+
+/* =====================================
+   Save Modal
+   ===================================== */
+.save-modal-content {
+    max-height: 90dvh;
+}
+
+.save-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 16px;
+    padding: 3px;
+    background: var(--border);
+    border-radius: 8px;
+}
+
+.save-tab {
+    flex: 1;
+    padding: 7px 8px;
+    background: none;
+    border: none;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all var(--transition);
+}
+
+.save-tab.active {
+    background: var(--surface);
+    color: var(--primary);
+}
+
+.inline-lang-select {
+    font-size: 11px;
+    margin-left: 6px;
+    padding: 2px 6px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text-secondary);
+    font-family: inherit;
+}
+
+.extract-candidates {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 50dvh;
+    overflow-y: auto;
+}
+
+.extract-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.extract-item:hover {
+    border-color: var(--primary);
+}
+
+.extract-item.selected {
+    border-color: var(--primary);
+    background: var(--primary-light);
+}
+
+.extract-checkbox {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    border: 1.5px solid var(--border);
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1px;
+}
+
+.extract-item.selected .extract-checkbox {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: white;
+}
+
+.extract-item-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.extract-text-a {
+    font-size: 14px;
+    color: var(--text);
+    margin-bottom: 3px;
+    word-break: break-word;
+}
+
+.extract-text-b {
+    font-size: 14px;
+    color: var(--primary);
+    word-break: break-word;
+}
+
+/* =====================================
+   Buttons
+   ===================================== */
+.danger-btn {
+    background: var(--danger) !important;
+    padding: 14px 20px !important;
+}
+
+.danger-btn:hover:not(:disabled) {
+    background: #dc2626 !important;
+}
+

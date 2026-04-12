@@ -36,7 +36,10 @@ const GEMINI_MODEL = "gemini-2.5-flash";
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 const STORAGE_KEY_API = "gemini_api_key";
 const STORAGE_KEY_FAVORITES = "favorite_languages";
+const STORAGE_KEY_GAS_URL = "gas_endpoint_url";
+const STORAGE_KEY_AUTOPLAY_DELAY = "autoplay_delay";
 const DEFAULT_FAVORITES = ["en", "zh", "ko", "tl", "id"];
+const DEFAULT_AUTOPLAY_DELAY = 10;
 
 // ---- DOM Elements ----
 const sourceText = document.getElementById("source-text");
@@ -74,6 +77,57 @@ const pasteBtn = document.getElementById("paste-btn");
 const learningSection = document.getElementById("learning-section");
 const learningNotes = document.getElementById("learning-notes");
 const styleTabs = document.querySelectorAll(".style-tab");
+const saveBtn = document.getElementById("save-btn");
+
+// GAS settings
+const gasUrlInput = document.getElementById("gas-url");
+const saveGasBtn = document.getElementById("save-gas");
+const gasStatus = document.getElementById("gas-status");
+const autoplayDelaySelect = document.getElementById("autoplay-delay");
+
+// Mode navigation
+const modeTabs = document.querySelectorAll(".mode-tab");
+const translateView = document.getElementById("translate-view");
+const studyView = document.getElementById("study-view");
+const cardsView = document.getElementById("cards-view");
+
+// Cards view
+const cardsCount = document.getElementById("cards-count");
+const cardsRefreshBtn = document.getElementById("cards-refresh-btn");
+const cardsSearch = document.getElementById("cards-search");
+const cardsListEl = document.getElementById("cards-list");
+const cardsEmpty = document.getElementById("cards-empty");
+
+// Save modal
+const saveModal = document.getElementById("save-modal");
+const closeSaveBtn = document.getElementById("close-save");
+const saveTabs = document.querySelectorAll(".save-tab");
+const saveEditPanel = document.getElementById("save-edit-panel");
+const saveExtractPanel = document.getElementById("save-extract-panel");
+const saveSrcText = document.getElementById("save-src-text");
+const saveTgtText = document.getElementById("save-tgt-text");
+const saveSrcLangSelect = document.getElementById("save-src-lang-select");
+const saveTgtLangSelect = document.getElementById("save-tgt-lang-select");
+const saveSrcLangLabel = document.getElementById("save-src-lang-label");
+const saveTgtLangLabel = document.getElementById("save-tgt-lang-label");
+const saveStyleHint = document.getElementById("save-style-hint");
+const saveSelectionNote = document.getElementById("save-selection-note");
+const saveConfirmBtn = document.getElementById("save-confirm-btn");
+const saveStatus = document.getElementById("save-status");
+const extractStartBtn = document.getElementById("extract-start-btn");
+const extractCandidates = document.getElementById("extract-candidates");
+const saveExtractConfirmBtn = document.getElementById("save-extract-confirm-btn");
+const extractCountEl = document.getElementById("extract-count");
+
+// Card edit modal
+const cardEditModal = document.getElementById("card-edit-modal");
+const closeCardEdit = document.getElementById("close-card-edit");
+const editLangA = document.getElementById("edit-lang-a");
+const editLangB = document.getElementById("edit-lang-b");
+const editTextA = document.getElementById("edit-text-a");
+const editTextB = document.getElementById("edit-text-b");
+const cardUpdateBtn = document.getElementById("card-update-btn");
+const cardDeleteBtn = document.getElementById("card-delete-btn");
 
 // ---- State ----
 let isTranslating = false;
@@ -86,13 +140,28 @@ let translationCache = { normal: "", casual: "", formal: "", advanced: "", notes
 let activeStyle = "normal";
 let lastSourceText = "";
 let lastTargetLang = "";
+let lastDetectedSrcLang = null;
+
+// DB local cache
+let cardsCache = []; // [{ id, pairKey, langA, textA, langB, textB, style, createdAt }]
+let scoresCache = []; // [{ pairId, direction, easeFactor, interval, nextReview, lastReviewed, repetitions }]
+
+// Save modal state
+let pendingSave = null; // { srcLang, srcText, tgtLang, tgtText, style }
+let extractItems = []; // current extraction candidates
+let currentEditingCardId = null;
 
 // ---- Init ----
 function init() {
     loadApiKey();
     loadFavorites();
+    loadAutoplayDelay();
+    loadGasUrl();
     bindEvents();
+    populateLangSelects();
     updateTranslateButton();
+    // Fetch cards on load if GAS is configured
+    if (getGasUrl()) fetchAllFromDb().catch(() => {});
 }
 
 function bindEvents() {
@@ -144,6 +213,70 @@ function bindEvents() {
             handleTranslate();
         }
     });
+
+    // ---- Phase 1 additions ----
+
+    // GAS URL settings
+    saveGasBtn.addEventListener("click", saveGasUrl);
+    autoplayDelaySelect.addEventListener("change", () => {
+        localStorage.setItem(STORAGE_KEY_AUTOPLAY_DELAY, autoplayDelaySelect.value);
+    });
+
+    // Mode navigation
+    modeTabs.forEach((tab) => {
+        tab.addEventListener("click", () => switchMode(tab.dataset.mode));
+    });
+
+    // Save button
+    saveBtn.addEventListener("click", openSaveModal);
+    closeSaveBtn.addEventListener("click", closeSaveModal);
+    saveModal.querySelector(".modal-backdrop").addEventListener("click", closeSaveModal);
+    saveTabs.forEach((t) => t.addEventListener("click", () => switchSaveTab(t.dataset.tab)));
+    saveConfirmBtn.addEventListener("click", confirmSaveCard);
+    extractStartBtn.addEventListener("click", runExtraction);
+    saveExtractConfirmBtn.addEventListener("click", confirmExtractSave);
+
+    // Cards view
+    cardsRefreshBtn.addEventListener("click", () => fetchAllFromDb(true));
+    cardsSearch.addEventListener("input", () => renderCards());
+
+    // Card edit
+    closeCardEdit.addEventListener("click", closeCardEditModal);
+    cardEditModal.querySelector(".modal-backdrop").addEventListener("click", closeCardEditModal);
+    cardUpdateBtn.addEventListener("click", confirmUpdateCard);
+    cardDeleteBtn.addEventListener("click", confirmDeleteCard);
+}
+
+// ---- Mode Navigation ----
+function switchMode(mode) {
+    modeTabs.forEach((t) => t.classList.toggle("active", t.dataset.mode === mode));
+    translateView.style.display = mode === "translate" ? "block" : "none";
+    studyView.style.display = mode === "study" ? "block" : "none";
+    cardsView.style.display = mode === "cards" ? "block" : "none";
+
+    if (mode === "cards") {
+        renderCards();
+        // Refresh in background if cache is empty
+        if (cardsCache.length === 0 && getGasUrl()) {
+            fetchAllFromDb().catch(() => {});
+        }
+    }
+}
+
+// ---- Populate language selects in save modal ----
+function populateLangSelects() {
+    const langs = Object.keys(LANG_NAMES).filter((k) => k !== "auto");
+    const makeOptions = (selectEl) => {
+        selectEl.innerHTML = "";
+        langs.forEach((code) => {
+            const opt = document.createElement("option");
+            opt.value = code;
+            opt.textContent = LANG_NAMES[code];
+            selectEl.appendChild(opt);
+        });
+    };
+    makeOptions(saveSrcLangSelect);
+    makeOptions(saveTgtLangSelect);
 }
 
 // ---- Source Input ----
@@ -266,6 +399,7 @@ async function handleTranslate() {
     currentTargetLang = tgtLang;
     lastSourceText = text;
     lastTargetLang = tgtLang;
+    lastDetectedSrcLang = detectSourceLang(text);
 
     // Reset cache
     translationCache = { normal: "", casual: "", formal: "", advanced: "", notes: "" };
@@ -788,6 +922,555 @@ function showToast(message) {
     toast.textContent = message;
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 2200);
+}
+
+// ============================================================
+// Phase 1: Learning DB (GAS + Sheets), Save Cards, Cards View
+// ============================================================
+
+// ---- Language Detection (rough heuristics) ----
+function detectSourceLang(text) {
+    const explicit = sourceLang.value;
+    if (explicit && explicit !== "auto") return explicit;
+
+    const hiraKata = /[\u3040-\u309F\u30A0-\u30FF]/;
+    const hangul = /[\uAC00-\uD7AF]/;
+    const cjk = /[\u4E00-\u9FFF]/;
+    const thai = /[\u0E00-\u0E7F]/;
+    const arabic = /[\u0600-\u06FF]/;
+    const cyrillic = /[\u0400-\u04FF]/;
+
+    if (hiraKata.test(text)) return "ja";
+    if (hangul.test(text)) return "ko";
+    if (thai.test(text)) return "th";
+    if (arabic.test(text)) return "ar";
+    if (cjk.test(text)) return "zh";
+    if (cyrillic.test(text)) return "ru";
+    // Default fallback for Latin-script text
+    return "en";
+}
+
+// ---- Pair Key Normalization ----
+// ja↔en is the same pair "en-ja" (alphabetical order)
+function makePairKey(langA, langB) {
+    const [a, b] = [langA, langB].sort();
+    return `${a}-${b}`;
+}
+
+// Normalize a pair so that langA < langB alphabetically
+function normalizePair(srcLang, srcText, tgtLang, tgtText) {
+    if (srcLang <= tgtLang) {
+        return { langA: srcLang, textA: srcText, langB: tgtLang, textB: tgtText };
+    }
+    return { langA: tgtLang, textA: tgtText, langB: srcLang, textB: srcText };
+}
+
+// ============================================================
+// GAS API Wrapper
+// ============================================================
+
+function getGasUrl() {
+    return localStorage.getItem(STORAGE_KEY_GAS_URL) || "";
+}
+
+function loadGasUrl() {
+    gasUrlInput.value = getGasUrl();
+}
+
+async function saveGasUrl() {
+    const url = gasUrlInput.value.trim();
+    if (!url) {
+        gasStatus.textContent = "URLを入力してください";
+        gasStatus.className = "key-status error";
+        return;
+    }
+    if (!url.startsWith("https://script.google.com/")) {
+        gasStatus.textContent = "Apps ScriptのURLではないようです";
+        gasStatus.className = "key-status error";
+        return;
+    }
+
+    gasStatus.textContent = "接続テスト中...";
+    gasStatus.className = "key-status";
+
+    try {
+        localStorage.setItem(STORAGE_KEY_GAS_URL, url);
+        const result = await gasGet("ping");
+        if (result && result.ok) {
+            gasStatus.textContent = "接続成功！保存しました";
+            gasStatus.className = "key-status success";
+            // Fetch data after successful connection
+            fetchAllFromDb().catch(() => {});
+        } else {
+            throw new Error("応答が不正です");
+        }
+    } catch (error) {
+        localStorage.removeItem(STORAGE_KEY_GAS_URL);
+        gasStatus.textContent = `接続失敗: ${error.message || error}`;
+        gasStatus.className = "key-status error";
+    }
+}
+
+function loadAutoplayDelay() {
+    const stored = localStorage.getItem(STORAGE_KEY_AUTOPLAY_DELAY);
+    autoplayDelaySelect.value = stored || String(DEFAULT_AUTOPLAY_DELAY);
+}
+
+async function gasGet(action, params = {}) {
+    const url = getGasUrl();
+    if (!url) throw new Error("学習DBのURLが未設定です");
+    const qs = new URLSearchParams({ action, ...params }).toString();
+    const res = await fetch(`${url}?${qs}`, { redirect: "follow" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || "API error");
+    return data.data;
+}
+
+async function gasPost(action, body = {}) {
+    const url = getGasUrl();
+    if (!url) throw new Error("学習DBのURLが未設定です");
+    // Use text/plain to avoid CORS preflight
+    const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action, ...body }),
+        redirect: "follow",
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || "API error");
+    return data.data;
+}
+
+// High-level DB operations
+async function fetchAllFromDb(showFeedback = false) {
+    try {
+        const data = await gasGet("listAll");
+        cardsCache = data.pairs || [];
+        scoresCache = data.scores || [];
+        if (cardsView.style.display !== "none") renderCards();
+        if (showFeedback) showToast(`${cardsCache.length} 件のカードを取得しました`);
+    } catch (error) {
+        if (showFeedback) showToast(`取得失敗: ${error.message}`);
+    }
+}
+
+async function dbSavePair(pair) {
+    return gasPost("savePair", { pair });
+}
+
+async function dbUpdatePair(pair) {
+    return gasPost("updatePair", { pair });
+}
+
+async function dbDeletePair(id) {
+    return gasPost("deletePair", { id });
+}
+
+// ============================================================
+// Save Card Modal
+// ============================================================
+
+function openSaveModal() {
+    if (!getGasUrl()) {
+        showToast("先に設定から学習DBのURLを登録してください");
+        openSettings();
+        return;
+    }
+
+    const srcLang = lastDetectedSrcLang || detectSourceLang(lastSourceText);
+    const tgtLang = currentTargetLang;
+    const tgtTextRaw = translationCache[activeStyle] || "";
+
+    // Detect selection
+    let srcSelected = getSourceSelection();
+    let tgtSelected = getResultSelection();
+
+    const srcText = srcSelected || lastSourceText;
+    const tgtText = tgtSelected || tgtTextRaw;
+
+    if (srcSelected || tgtSelected) {
+        saveSelectionNote.style.display = "block";
+    } else {
+        saveSelectionNote.style.display = "none";
+    }
+
+    saveSrcLangSelect.value = srcLang;
+    saveTgtLangSelect.value = tgtLang;
+    updateSaveLangLabels();
+    saveSrcText.value = srcText;
+    saveTgtText.value = tgtText;
+
+    const styleLabel = { normal: "ノーマル", casual: "カジュアル", formal: "フォーマル", advanced: "アドバンス" }[activeStyle];
+    saveStyleHint.textContent = `保存するスタイル: ${styleLabel}`;
+
+    saveStatus.textContent = "";
+    saveStatus.className = "key-status";
+    extractCandidates.innerHTML = "";
+    saveExtractConfirmBtn.style.display = "none";
+    switchSaveTab("edit");
+
+    saveModal.style.display = "flex";
+
+    // Language select sync
+    saveSrcLangSelect.onchange = updateSaveLangLabels;
+    saveTgtLangSelect.onchange = updateSaveLangLabels;
+}
+
+function updateSaveLangLabels() {
+    saveSrcLangLabel.textContent = LANG_SHORT[saveSrcLangSelect.value] || saveSrcLangSelect.value;
+    saveTgtLangLabel.textContent = LANG_SHORT[saveTgtLangSelect.value] || saveTgtLangSelect.value;
+}
+
+function closeSaveModal() {
+    saveModal.style.display = "none";
+}
+
+function switchSaveTab(tab) {
+    saveTabs.forEach((t) => t.classList.toggle("active", t.dataset.tab === tab));
+    saveEditPanel.style.display = tab === "edit" ? "block" : "none";
+    saveExtractPanel.style.display = tab === "extract" ? "block" : "none";
+}
+
+function getSourceSelection() {
+    if (document.activeElement === sourceText || sourceText.selectionStart !== sourceText.selectionEnd) {
+        const start = sourceText.selectionStart;
+        const end = sourceText.selectionEnd;
+        if (start !== end) {
+            return sourceText.value.substring(start, end).trim();
+        }
+    }
+    return null;
+}
+
+function getResultSelection() {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return null;
+    const selected = sel.toString().trim();
+    if (!selected) return null;
+    // Check if selection is within the result text area
+    const range = sel.getRangeAt(0);
+    const container = document.getElementById("result-text");
+    if (container && container.contains(range.commonAncestorContainer)) {
+        return selected;
+    }
+    return null;
+}
+
+async function confirmSaveCard() {
+    const srcLangVal = saveSrcLangSelect.value;
+    const tgtLangVal = saveTgtLangSelect.value;
+    const srcTextVal = saveSrcText.value.trim();
+    const tgtTextVal = saveTgtText.value.trim();
+
+    if (!srcTextVal || !tgtTextVal) {
+        saveStatus.textContent = "両方のテキストを入力してください";
+        saveStatus.className = "key-status error";
+        return;
+    }
+    if (srcLangVal === tgtLangVal) {
+        saveStatus.textContent = "翻訳元と訳文の言語が同じです";
+        saveStatus.className = "key-status error";
+        return;
+    }
+
+    const normalized = normalizePair(srcLangVal, srcTextVal, tgtLangVal, tgtTextVal);
+    const pair = {
+        pairKey: makePairKey(srcLangVal, tgtLangVal),
+        langA: normalized.langA,
+        textA: normalized.textA,
+        langB: normalized.langB,
+        textB: normalized.textB,
+        style: activeStyle,
+    };
+
+    saveStatus.textContent = "保存中...";
+    saveStatus.className = "key-status";
+    saveConfirmBtn.disabled = true;
+
+    try {
+        const result = await dbSavePair(pair);
+        if (result.skipped) {
+            saveStatus.textContent = "同じカードが既に存在します (スキップ)";
+            saveStatus.className = "key-status success";
+        } else {
+            saveStatus.textContent = "保存しました！";
+            saveStatus.className = "key-status success";
+            // Update local cache
+            cardsCache.push({
+                id: result.id,
+                ...pair,
+                createdAt: new Date().toISOString(),
+            });
+        }
+        setTimeout(closeSaveModal, 1000);
+    } catch (error) {
+        saveStatus.textContent = `保存失敗: ${error.message}`;
+        saveStatus.className = "key-status error";
+    } finally {
+        saveConfirmBtn.disabled = false;
+    }
+}
+
+// ---- AI Extraction ----
+async function runExtraction() {
+    const apiKey = getApiKey();
+    if (!apiKey) {
+        showToast("Gemini APIキーが必要です");
+        return;
+    }
+    if (!lastSourceText) {
+        showToast("翻訳結果がありません");
+        return;
+    }
+
+    const btnTxt = extractStartBtn.querySelector(".btn-text");
+    const btnLoad = extractStartBtn.querySelector(".btn-loading");
+    btnTxt.style.display = "none";
+    btnLoad.style.display = "inline-flex";
+    extractStartBtn.disabled = true;
+
+    try {
+        const srcLang = lastDetectedSrcLang || detectSourceLang(lastSourceText);
+        const tgtLang = currentTargetLang;
+        const srcName = LANG_NAMES[srcLang] || srcLang;
+        const tgtName = LANG_NAMES[tgtLang] || tgtLang;
+        const tgtTextRaw = translationCache[activeStyle] || translationCache.normal;
+
+        const prompt = `You are a language-learning assistant.
+
+From this translation pair, extract 3-6 SHORT phrases or idioms that are most valuable for a learner. Each phrase should be a compact, memorizable unit (word, phrase, or short clause).
+
+Return ONLY a JSON array (no markdown fences, no extra text):
+[
+  { "source": "${srcName} phrase", "target": "${tgtName} phrase" },
+  ...
+]
+
+Source (${srcName}):
+${lastSourceText}
+
+Translation (${tgtName}):
+${tgtTextRaw}`;
+
+        const raw = await callGemini(apiKey, prompt);
+        const jsonStr = raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+        const items = JSON.parse(jsonStr);
+
+        if (!Array.isArray(items) || items.length === 0) {
+            throw new Error("抽出結果が空でした");
+        }
+
+        extractItems = items;
+        renderExtractCandidates();
+    } catch (error) {
+        showToast(`抽出失敗: ${error.message}`);
+    } finally {
+        btnTxt.style.display = "inline";
+        btnLoad.style.display = "none";
+        extractStartBtn.disabled = false;
+    }
+}
+
+function renderExtractCandidates() {
+    extractCandidates.innerHTML = "";
+    extractItems.forEach((item, idx) => {
+        const el = document.createElement("div");
+        el.className = "extract-item selected";
+        el.dataset.index = idx;
+        el.innerHTML = `
+            <div class="extract-checkbox">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                    <polyline points="20 6 9 17 4 12"/>
+                </svg>
+            </div>
+            <div class="extract-item-content">
+                <div class="extract-text-a"></div>
+                <div class="extract-text-b"></div>
+            </div>
+        `;
+        el.querySelector(".extract-text-a").textContent = item.source;
+        el.querySelector(".extract-text-b").textContent = item.target;
+
+        el.addEventListener("click", () => {
+            el.classList.toggle("selected");
+            updateExtractCount();
+        });
+
+        extractCandidates.appendChild(el);
+    });
+    saveExtractConfirmBtn.style.display = "block";
+    updateExtractCount();
+}
+
+function updateExtractCount() {
+    const count = extractCandidates.querySelectorAll(".extract-item.selected").length;
+    extractCountEl.textContent = count;
+    saveExtractConfirmBtn.disabled = count === 0;
+}
+
+async function confirmExtractSave() {
+    const selected = Array.from(extractCandidates.querySelectorAll(".extract-item.selected"));
+    if (selected.length === 0) return;
+
+    const srcLang = saveSrcLangSelect.value;
+    const tgtLang = saveTgtLangSelect.value;
+
+    saveExtractConfirmBtn.disabled = true;
+    saveStatus.textContent = "保存中...";
+    saveStatus.className = "key-status";
+
+    let savedCount = 0;
+    let skippedCount = 0;
+
+    for (const el of selected) {
+        const idx = parseInt(el.dataset.index);
+        const item = extractItems[idx];
+        if (!item) continue;
+
+        const normalized = normalizePair(srcLang, item.source, tgtLang, item.target);
+        const pair = {
+            pairKey: makePairKey(srcLang, tgtLang),
+            langA: normalized.langA,
+            textA: normalized.textA,
+            langB: normalized.langB,
+            textB: normalized.textB,
+            style: `extract:${activeStyle}`,
+        };
+
+        try {
+            const result = await dbSavePair(pair);
+            if (result.skipped) {
+                skippedCount++;
+            } else {
+                savedCount++;
+                cardsCache.push({
+                    id: result.id,
+                    ...pair,
+                    createdAt: new Date().toISOString(),
+                });
+            }
+        } catch (error) {
+            // Continue with others
+        }
+    }
+
+    saveStatus.textContent = `${savedCount}件保存、${skippedCount}件スキップ`;
+    saveStatus.className = "key-status success";
+    saveExtractConfirmBtn.disabled = false;
+    setTimeout(closeSaveModal, 1500);
+}
+
+// ============================================================
+// Cards View
+// ============================================================
+
+function renderCards() {
+    const query = (cardsSearch.value || "").trim().toLowerCase();
+
+    let filtered = cardsCache;
+    if (query) {
+        filtered = filtered.filter((c) =>
+            (c.textA || "").toLowerCase().includes(query) ||
+            (c.textB || "").toLowerCase().includes(query) ||
+            (c.pairKey || "").toLowerCase().includes(query)
+        );
+    }
+
+    // Sort by createdAt desc
+    filtered = [...filtered].sort((a, b) => {
+        const ta = new Date(a.createdAt || 0).getTime();
+        const tb = new Date(b.createdAt || 0).getTime();
+        return tb - ta;
+    });
+
+    cardsCount.textContent = `${filtered.length} 件${query ? ` / ${cardsCache.length}件中` : ""}`;
+
+    if (filtered.length === 0) {
+        cardsListEl.innerHTML = "";
+        cardsEmpty.style.display = cardsCache.length === 0 ? "block" : "none";
+        if (cardsCache.length > 0) {
+            cardsListEl.innerHTML = `<p style="text-align:center; padding:40px 20px; color:var(--text-secondary);">該当するカードがありません</p>`;
+        }
+        return;
+    }
+
+    cardsEmpty.style.display = "none";
+    cardsListEl.innerHTML = "";
+    filtered.forEach((card) => {
+        const item = document.createElement("div");
+        item.className = "card-item";
+        item.innerHTML = `
+            <span class="card-pair-tag">${escapeHtml(card.langA || "")}↔${escapeHtml(card.langB || "")}</span>
+            ${card.style ? `<span class="card-style-tag">${escapeHtml(card.style)}</span>` : ""}
+            <div class="card-text-a"></div>
+            <div class="card-text-b"></div>
+        `;
+        item.querySelector(".card-text-a").textContent = card.textA || "";
+        item.querySelector(".card-text-b").textContent = card.textB || "";
+
+        item.addEventListener("click", () => openCardEdit(card));
+        cardsListEl.appendChild(item);
+    });
+}
+
+function openCardEdit(card) {
+    currentEditingCardId = card.id;
+    editLangA.textContent = `${LANG_NAMES[card.langA] || card.langA}`;
+    editLangB.textContent = `${LANG_NAMES[card.langB] || card.langB}`;
+    editTextA.value = card.textA || "";
+    editTextB.value = card.textB || "";
+    cardEditModal.style.display = "flex";
+}
+
+function closeCardEditModal() {
+    cardEditModal.style.display = "none";
+    currentEditingCardId = null;
+}
+
+async function confirmUpdateCard() {
+    if (!currentEditingCardId) return;
+    const textA = editTextA.value.trim();
+    const textB = editTextB.value.trim();
+    if (!textA || !textB) {
+        showToast("両方のテキストを入力してください");
+        return;
+    }
+
+    cardUpdateBtn.disabled = true;
+    try {
+        await dbUpdatePair({ id: currentEditingCardId, textA, textB });
+        // Update local cache
+        const card = cardsCache.find((c) => c.id === currentEditingCardId);
+        if (card) { card.textA = textA; card.textB = textB; }
+        renderCards();
+        showToast("更新しました");
+        closeCardEditModal();
+    } catch (error) {
+        showToast(`更新失敗: ${error.message}`);
+    } finally {
+        cardUpdateBtn.disabled = false;
+    }
+}
+
+async function confirmDeleteCard() {
+    if (!currentEditingCardId) return;
+    if (!confirm("このカードを削除しますか？\n(関連するスコアも削除されます)")) return;
+
+    cardDeleteBtn.disabled = true;
+    try {
+        await dbDeletePair(currentEditingCardId);
+        cardsCache = cardsCache.filter((c) => c.id !== currentEditingCardId);
+        scoresCache = scoresCache.filter((s) => s.pairId !== currentEditingCardId);
+        renderCards();
+        showToast("削除しました");
+        closeCardEditModal();
+    } catch (error) {
+        showToast(`削除失敗: ${error.message}`);
+    } finally {
+        cardDeleteBtn.disabled = false;
+    }
 }
 
 // ---- Start ----
