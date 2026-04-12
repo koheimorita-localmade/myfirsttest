@@ -1830,11 +1830,7 @@ function loadNextCard() {
 
     sessionProgress.textContent = `${study.sessionCount} 問目`;
 
-    // Force audio to playback mode before TTS (iOS audio session workaround)
-    nudgeAudioToPlayback();
-
-    // Auto-speak question, then chain countdown if autoplay.
-    // Longer delay gives iOS time to switch audio session from record → playback.
+    // Auto-speak question, then chain countdown if autoplay
     setTimeout(() => {
         if (!study.active || study.answered) return;
         speakText(qText, qLang, () => {
@@ -1844,7 +1840,7 @@ function loadNextCard() {
                 });
             }
         });
-    }, 350);
+    }, 200);
 }
 
 function revealAnswer() {
@@ -1854,9 +1850,6 @@ function revealAnswer() {
     answerBlock.style.display = "block";
     showAnswerBtn.style.display = "none";
     feedbackButtons.style.display = "grid";
-
-    // Ensure playback audio mode before speaking the answer
-    nudgeAudioToPlayback();
 
     // Auto-speak answer, then chain next-card countdown if autoplay
     setTimeout(() => {
@@ -1981,9 +1974,6 @@ function speakText(text, lang, onDone) {
     if (typeof speechSynthesis === "undefined") { done(); return; }
 
     try { speechSynthesis.cancel(); } catch {}
-
-    // Last-chance iOS session nudge right before speaking
-    nudgeAudioToPlayback();
 
     const utterance = new SpeechSynthesisUtterance(text);
     const langCode = LANG_TTS[lang] || "en-US";
@@ -2180,47 +2170,12 @@ function stopVoiceRecognition() {
         try { r.onend = null; r.onresult = null; r.onerror = null; r.stop(); } catch {}
     }
     voiceListenHint.style.display = "none";
-    // iOS: after microphone stops, audio session stays in "record" mode which
-    // degrades TTS quality to earpiece-call-mode. Aggressively reset:
-    // 1. Recreate AudioContext (old one was tainted by record session)
-    // 2. Nudge with a brief audible oscillator
-    // 3. Silent background audio loop (started at session start) keeps
-    //    the session biased toward "playback" category
-    if (wasRunning) {
-        recreateAudioContext();
-        nudgeAudioToPlayback();
-    }
+    // iOS audio session routing after mic is a known platform limitation
+    // with no reliable JS-only fix. Keep clean-up minimal.
 }
 
 // ---- Audio session helper (iOS playback mode switch) ----
 let _audioCtx = null;
-let _silentLoopAudio = null;
-
-// Silent MP3 (~0.3s) as data URL. Loop keeps iOS audio session in "playback" mode.
-const SILENT_MP3_DATA_URL = "data:audio/mpeg;base64,//tAxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgP////////////////////////////////////////////////////////////////8AAAA8TEFNRTMuMTAwA8MAAAAAAAAAABSAJAJAQgAAgAAAAnGMHkkJAAAAAAD/+0DEAAPH3Yz0AAR8cPQxnoAAj44AAAGkxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV";
-
-function startSilentAudioLoop() {
-    if (_silentLoopAudio) return;
-    try {
-        _silentLoopAudio = new Audio();
-        _silentLoopAudio.src = SILENT_MP3_DATA_URL;
-        _silentLoopAudio.loop = true;
-        _silentLoopAudio.volume = 0;
-        _silentLoopAudio.preload = "auto";
-        // Must be invoked in a user-gesture context; startStudySession calls this
-        _silentLoopAudio.play().catch(() => {});
-    } catch {}
-}
-
-function stopSilentAudioLoop() {
-    if (_silentLoopAudio) {
-        try {
-            _silentLoopAudio.pause();
-            _silentLoopAudio.src = "";
-        } catch {}
-        _silentLoopAudio = null;
-    }
-}
 
 function ensureAudioContext() {
     if (_audioCtx && _audioCtx.state !== "closed") return _audioCtx;
@@ -2234,35 +2189,11 @@ function ensureAudioContext() {
     return _audioCtx;
 }
 
-function recreateAudioContext() {
-    // Close the old context (which may have been set up in "record" mode)
-    // and build a fresh one so subsequent playback uses a clean audio session.
-    if (_audioCtx) {
-        try { _audioCtx.close(); } catch {}
-        _audioCtx = null;
-    }
-    return ensureAudioContext();
-}
-
-function nudgeAudioToPlayback() {
-    const ctx = ensureAudioContext();
-    if (!ctx) return;
-    try {
-        if (ctx.state === "suspended") {
-            ctx.resume().catch(() => {});
-        }
-        // Brief near-silent oscillator to cue iOS that we're in playback.
-        // Audible frequencies are handled differently than subsonic, so use ~440Hz.
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        gain.gain.value = 0.0001; // essentially inaudible
-        osc.frequency.value = 440;
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.05);
-    } catch {}
-}
+// No-op placeholders retained for call-site compatibility after rollback.
+// The silent-loop + oscillator approach worsened iOS routing, so we disabled it.
+function nudgeAudioToPlayback() { /* intentionally empty */ }
+function startSilentAudioLoop() { /* intentionally empty */ }
+function stopSilentAudioLoop() { /* intentionally empty */ }
 
 // ---- Start ----
 init();
