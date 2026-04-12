@@ -1180,6 +1180,42 @@ textarea::placeholder {
     color: var(--primary);
 }
 
+#voice-feedback-btn.active {
+    background: var(--primary-light);
+    color: var(--primary);
+}
+
+.session-header-toggles {
+    display: flex;
+    gap: 4px;
+}
+
+/* Voice listening indicators */
+.voice-listen-hint {
+    display: block;
+    font-size: 12px;
+    color: var(--primary);
+    margin-top: 4px;
+}
+
+.mic-pulse {
+    display: inline-block;
+    animation: micPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes micPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(1.15); }
+}
+
+.voice-heard {
+    display: block;
+    font-size: 13px;
+    color: var(--success);
+    font-weight: 600;
+    margin-top: 4px;
+}
+
 /* =====================================
    Pill group (selector)
    ===================================== */

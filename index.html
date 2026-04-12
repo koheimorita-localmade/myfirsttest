@@ -232,12 +232,20 @@
                 <div class="session-header">
                     <button id="study-exit-btn" class="text-btn">終了</button>
                     <span id="session-progress" class="session-progress">0 / 0</span>
-                    <button id="autoplay-toggle-btn" class="text-btn" aria-label="自動再生">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;">
-                            <polygon points="5 3 19 12 5 21 5 3"/>
-                        </svg>
-                        自動
-                    </button>
+                    <div class="session-header-toggles">
+                        <button id="voice-feedback-btn" class="text-btn" aria-label="音声フィードバック">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;">
+                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
+                            </svg>
+                            音声
+                        </button>
+                        <button id="autoplay-toggle-btn" class="text-btn" aria-label="自動再生">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;">
+                                <polygon points="5 3 19 12 5 21 5 3"/>
+                            </svg>
+                            自動
+                        </button>
+                    </div>
                 </div>
 
                 <div class="flashcard">
@@ -280,7 +288,11 @@
                 </div>
 
                 <div id="autoplay-countdown" class="autoplay-countdown" style="display:none;">
-                    次の動作まで <span id="countdown-value">0</span> 秒
+                    <span id="countdown-text">次の動作まで <span id="countdown-value">0</span> 秒</span>
+                    <span id="voice-listen-hint" class="voice-listen-hint" style="display:none;">
+                        <span class="mic-pulse">🎤</span> 聞いています…「覚えた」「時間かかった」「わからない」
+                    </span>
+                    <span id="voice-heard" class="voice-heard" style="display:none;"></span>
                 </div>
             </div>
 

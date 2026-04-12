@@ -38,6 +38,7 @@ const STORAGE_KEY_API = "gemini_api_key";
 const STORAGE_KEY_FAVORITES = "favorite_languages";
 const STORAGE_KEY_GAS_URL = "gas_endpoint_url";
 const STORAGE_KEY_AUTOPLAY_DELAY = "autoplay_delay";
+const STORAGE_KEY_VOICE_FEEDBACK = "voice_feedback_enabled";
 const DEFAULT_FAVORITES = ["en", "zh", "ko", "tl", "id"];
 const DEFAULT_AUTOPLAY_DELAY = 10;
 
@@ -112,6 +113,10 @@ const feedbackButtons = document.getElementById("feedback-buttons");
 const autoplayToggleBtn = document.getElementById("autoplay-toggle-btn");
 const autoplayCountdown = document.getElementById("autoplay-countdown");
 const countdownValue = document.getElementById("countdown-value");
+const countdownText = document.getElementById("countdown-text");
+const voiceFeedbackBtn = document.getElementById("voice-feedback-btn");
+const voiceListenHint = document.getElementById("voice-listen-hint");
+const voiceHeardEl = document.getElementById("voice-heard");
 const statTotal = document.getElementById("stat-total");
 const statDue = document.getElementById("stat-due");
 const statNew = document.getElementById("stat-new");
@@ -182,6 +187,7 @@ function init() {
     loadApiKey();
     loadFavorites();
     loadAutoplayDelay();
+    loadVoiceFeedback();
     loadGasUrl();
     bindEvents();
     populateLangSelects();
@@ -287,6 +293,7 @@ function bindEvents() {
     speakQuestionBtn.addEventListener("click", () => speakText(questionTextEl.textContent, study.currentQuestionLang));
     speakAnswerBtn.addEventListener("click", () => speakText(answerTextEl.textContent, study.currentAnswerLang));
     autoplayToggleBtn.addEventListener("click", toggleAutoplay);
+    voiceFeedbackBtn.addEventListener("click", toggleVoiceFeedback);
     feedbackButtons.querySelectorAll(".feedback-btn").forEach((btn) => {
         btn.addEventListener("click", () => submitFeedback(parseInt(btn.dataset.quality)));
     });
@@ -1562,6 +1569,8 @@ const study = {
     autoplay: false,
     autoplayTimer: null,
     autoplayPhase: null, // "question" | "show_answer" | "next" | null
+    voiceFeedback: false,
+    recognition: null,
 };
 
 // ---- Score helpers ----
@@ -1830,13 +1839,21 @@ function revealAnswer() {
         if (!study.active) return;
         speakText(answerTextEl.textContent, study.currentAnswerLang, () => {
             if (study.autoplay && study.active && !study.answered) {
+                // Start voice recognition if enabled (listens during countdown)
+                if (study.voiceFeedback) {
+                    startVoiceRecognition((quality, transcript) => {
+                        flashVoiceHeard(transcript);
+                        submitFeedback(quality);
+                    });
+                }
                 startCountdown(() => {
+                    stopVoiceRecognition();
                     // No feedback given → skip scoring
                     if (study.active && !study.answered) {
                         study.answered = true;
                         loadNextCard();
                     }
-                });
+                }, { listening: study.voiceFeedback });
             }
         });
     }, 200);
@@ -1846,6 +1863,7 @@ async function submitFeedback(quality) {
     if (!study.currentCard || study.answered) return;
     study.answered = true;
     clearAutoplayTimer();
+    stopVoiceRecognition();
 
     const card = study.currentCard;
     const direction = study.direction;
@@ -1880,6 +1898,7 @@ async function submitFeedback(quality) {
 
 function exitStudySession(opts = {}) {
     clearAutoplayTimer();
+    stopVoiceRecognition();
     if (!study.active && opts.silent) return;
 
     study.active = false;
@@ -1935,27 +1954,45 @@ function toggleAutoplay() {
             if (answerBlock.style.display === "none") {
                 startCountdown(() => revealAnswer());
             } else {
+                // Answer is already visible → start voice recognition too
+                if (study.voiceFeedback) {
+                    startVoiceRecognition((quality, transcript) => {
+                        flashVoiceHeard(transcript);
+                        submitFeedback(quality);
+                    });
+                }
                 startCountdown(() => {
+                    stopVoiceRecognition();
                     study.answered = true;
                     loadNextCard();
-                });
+                }, { listening: study.voiceFeedback });
             }
         }
     } else {
         showToast("自動再生OFF");
         clearAutoplayTimer();
+        stopVoiceRecognition();
         autoplayCountdown.style.display = "none";
     }
 }
 
-function startCountdown(callback) {
+function startCountdown(callback, opts = {}) {
     clearAutoplayTimer();
     if (!study.autoplay || !study.active) return;
 
     const delay = parseInt(autoplayDelaySelect.value) || DEFAULT_AUTOPLAY_DELAY;
     let remaining = delay;
+
     autoplayCountdown.style.display = "block";
     countdownValue.textContent = remaining;
+
+    // Show voice listening hint if applicable
+    if (opts.listening) {
+        voiceListenHint.style.display = "block";
+    } else {
+        voiceListenHint.style.display = "none";
+    }
+    voiceHeardEl.style.display = "none";
 
     study.autoplayTimer = setInterval(() => {
         remaining--;
@@ -1963,6 +2000,7 @@ function startCountdown(callback) {
         if (remaining <= 0) {
             clearAutoplayTimer();
             autoplayCountdown.style.display = "none";
+            voiceListenHint.style.display = "none";
             if (study.active && study.autoplay) callback();
         }
     }, 1000);
@@ -1973,6 +2011,118 @@ function clearAutoplayTimer() {
         clearInterval(study.autoplayTimer);
         study.autoplayTimer = null;
     }
+}
+
+// ---- Voice Feedback (speech recognition during countdown) ----
+function loadVoiceFeedback() {
+    const stored = localStorage.getItem(STORAGE_KEY_VOICE_FEEDBACK) === "true";
+    study.voiceFeedback = stored;
+    if (voiceFeedbackBtn) {
+        voiceFeedbackBtn.classList.toggle("active", stored);
+    }
+}
+
+function toggleVoiceFeedback() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        showToast("このブラウザは音声認識に対応していません");
+        return;
+    }
+    study.voiceFeedback = !study.voiceFeedback;
+    localStorage.setItem(STORAGE_KEY_VOICE_FEEDBACK, String(study.voiceFeedback));
+    voiceFeedbackBtn.classList.toggle("active", study.voiceFeedback);
+    showToast(study.voiceFeedback ? "音声フィードバックON" : "音声フィードバックOFF");
+    if (!study.voiceFeedback) {
+        stopVoiceRecognition();
+        voiceListenHint.style.display = "none";
+    }
+}
+
+function matchFeedbackCommand(text) {
+    if (!text) return null;
+    const lower = text.toLowerCase();
+
+    // Quality 5: 覚えた / 簡単
+    if (/覚え|分かった|わかった|かんたん|簡単|大丈夫|おっけ|オッケ|完璧|余裕/i.test(text)) return 5;
+    if (/(^|\s)(ok|okay|easy)(\s|$|[.,!?])/i.test(lower)) return 5;
+
+    // Quality 1: わからない / 無理 / 難しい
+    if (/わから|わかんな|むり|無理|難しい|難しかった|ダメ|だめ|できない|知らない/.test(text)) return 1;
+    if (/(^|\s)(no|hard|nope)(\s|$|[.,!?])/i.test(lower)) return 1;
+
+    // Quality 3: 時間 / 遅い / 迷った (check last to avoid precedence)
+    if (/時間|遅い|遅かっ|迷っ|ちょっと|もう少し|あやふや|微妙|ややこし/.test(text)) return 3;
+
+    return null;
+}
+
+function startVoiceRecognition(onMatch) {
+    stopVoiceRecognition();
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return false;
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "ja-JP";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.onresult = (event) => {
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = (event.results[i][0].transcript || "").trim();
+            if (!transcript) continue;
+            const quality = matchFeedbackCommand(transcript);
+            if (quality !== null) {
+                stopVoiceRecognition();
+                onMatch(quality, transcript);
+                return;
+            }
+        }
+    };
+
+    recognition.onerror = (event) => {
+        if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+            showToast("マイクの使用が許可されていません");
+            study.voiceFeedback = false;
+            voiceFeedbackBtn.classList.remove("active");
+            localStorage.setItem(STORAGE_KEY_VOICE_FEEDBACK, "false");
+        }
+        // Other errors are silently ignored (no-speech, aborted, etc.)
+    };
+
+    recognition.onend = () => {
+        // Auto-restart if still in listening state and countdown running
+        if (study.recognition === recognition && study.active && study.autoplay && study.voiceFeedback && study.autoplayTimer) {
+            try {
+                recognition.start();
+            } catch {}
+        }
+    };
+
+    study.recognition = recognition;
+
+    try {
+        recognition.start();
+        return true;
+    } catch (e) {
+        // Recognition already running or browser issue
+        return false;
+    }
+}
+
+function stopVoiceRecognition() {
+    if (study.recognition) {
+        const r = study.recognition;
+        study.recognition = null;
+        try { r.onend = null; r.onresult = null; r.onerror = null; r.stop(); } catch {}
+    }
+    voiceListenHint.style.display = "none";
+}
+
+function flashVoiceHeard(text) {
+    voiceHeardEl.textContent = `🎤 「${text}」`;
+    voiceHeardEl.style.display = "block";
+    voiceListenHint.style.display = "none";
 }
 
 // ---- Start ----
