@@ -646,6 +646,9 @@ function speakResult() {
     if (!text) return;
     if (speechSynthesis.speaking) { speechSynthesis.cancel(); return; }
 
+    // Recover from any stuck "paused" state (iOS Safari quirk)
+    try { if (speechSynthesis.paused) speechSynthesis.resume(); } catch {}
+
     const utterance = new SpeechSynthesisUtterance(text);
     const langCode = LANG_TTS[currentTargetLang] || "en-US";
     utterance.lang = langCode;
@@ -1768,15 +1771,6 @@ function startStudySession() {
         return;
     }
 
-    // Initialize AudioContext on user gesture so it can later force
-    // playback audio session on iOS after the mic is used.
-    ensureAudioContext();
-
-    // Start silent audio loop — this keeps iOS audio session in "playback"
-    // category throughout the study session, so the session doesn't stay
-    // stuck in "record" mode after speech recognition.
-    startSilentAudioLoop();
-
     study.active = true;
     study.pairKey = pairKey;
     study.direction = getActiveDirection();
@@ -1937,7 +1931,6 @@ function exitStudySession(opts = {}) {
     clearAutoplayTimer();
     stopVoiceRecognition();
     killTTS();
-    stopSilentAudioLoop();
 
     if (!wasActive && opts.silent) return;
 
@@ -1950,13 +1943,13 @@ function exitStudySession(opts = {}) {
     autoplayCountdown.style.display = "none";
 }
 
-// iOS-safe TTS cancellation: pause + cancel + retry
+// iOS-safe TTS cancellation: cancel + retry
+// NOTE: We deliberately avoid pause() because calling it on iOS can
+// leave speechSynthesis stuck in the "paused" state, which silences
+// subsequent speak() calls globally until resume() is called.
 function killTTS() {
     if (typeof speechSynthesis === "undefined") return;
-    try {
-        speechSynthesis.pause();
-        speechSynthesis.cancel();
-    } catch {}
+    try { speechSynthesis.cancel(); } catch {}
     // Some iOS versions need a second cancel after a tick
     setTimeout(() => {
         try {
@@ -1967,6 +1960,14 @@ function killTTS() {
     }, 80);
 }
 
+function ensureSynthesisReady() {
+    if (typeof speechSynthesis === "undefined") return;
+    try {
+        // If anything left speechSynthesis in a paused state, recover it.
+        if (speechSynthesis.paused) speechSynthesis.resume();
+    } catch {}
+}
+
 // ---- TTS helper (used by study mode) ----
 function speakText(text, lang, onDone) {
     const done = onDone || (() => {});
@@ -1974,6 +1975,7 @@ function speakText(text, lang, onDone) {
     if (typeof speechSynthesis === "undefined") { done(); return; }
 
     try { speechSynthesis.cancel(); } catch {}
+    ensureSynthesisReady();
 
     const utterance = new SpeechSynthesisUtterance(text);
     const langCode = LANG_TTS[lang] || "en-US";
@@ -2174,26 +2176,13 @@ function stopVoiceRecognition() {
     // with no reliable JS-only fix. Keep clean-up minimal.
 }
 
-// ---- Audio session helper (iOS playback mode switch) ----
-let _audioCtx = null;
-
-function ensureAudioContext() {
-    if (_audioCtx && _audioCtx.state !== "closed") return _audioCtx;
-    try {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) return null;
-        _audioCtx = new AC();
-    } catch {
-        return null;
-    }
-    return _audioCtx;
-}
-
-// No-op placeholders retained for call-site compatibility after rollback.
-// The silent-loop + oscillator approach worsened iOS routing, so we disabled it.
-function nudgeAudioToPlayback() { /* intentionally empty */ }
-function startSilentAudioLoop() { /* intentionally empty */ }
-function stopSilentAudioLoop() { /* intentionally empty */ }
+// ---- Audio session note (iOS limitation) ----
+// Once Web Speech Recognition is used on iOS Safari, the audio session
+// category may remain in "PlayAndRecord" until page reload, which can
+// route TTS to the earpiece at lower quality. We accept this limitation
+// and no longer try to manipulate the audio session from JS (previous
+// attempts with AudioContext/silent loops/oscillator bursts caused
+// regressions such as complete loss of speaker output).
 
 // ---- Start ----
 init();
