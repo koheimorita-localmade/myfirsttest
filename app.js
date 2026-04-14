@@ -110,6 +110,9 @@ const speakQuestionBtn = document.getElementById("speak-question-btn");
 const speakAnswerBtn = document.getElementById("speak-answer-btn");
 const speakExampleBtn = document.getElementById("speak-example-btn");
 const showAnswerBtn = document.getElementById("show-answer-btn");
+const editCurrentCardBtn = document.getElementById("edit-current-card-btn");
+const cardEditBackBtn = document.getElementById("card-edit-back");
+const cardEditTitleEl = document.getElementById("card-edit-title");
 const questionPosEl = document.getElementById("question-pos");
 const answerPosEl = document.getElementById("answer-pos");
 const exampleBlock = document.getElementById("example-block");
@@ -331,6 +334,8 @@ function bindEvents() {
     speakExampleBtn.addEventListener("click", () => speakText(exampleTextEl.textContent, study.currentExampleLang));
     autoplayToggleBtn.addEventListener("click", toggleAutoplay);
     voiceFeedbackBtn.addEventListener("click", toggleVoiceFeedback);
+    editCurrentCardBtn.addEventListener("click", editCurrentCardFromStudy);
+    cardEditBackBtn.addEventListener("click", closeCardEditModal);
     feedbackButtons.querySelectorAll(".feedback-btn").forEach((btn) => {
         btn.addEventListener("click", () => submitFeedback(parseInt(btn.dataset.quality)));
     });
@@ -1644,8 +1649,14 @@ function renderCards() {
     });
 }
 
-function openCardEdit(card) {
+// Tracks where the card-edit modal was opened from, so we can adjust the UI
+// (e.g. show a "back to study" link) and know what to refresh on close.
+let cardEditReturnTo = null; // "cards" | "study"
+
+function openCardEdit(card, opts = {}) {
     currentEditingCardId = card.id;
+    cardEditReturnTo = opts.returnTo || "cards";
+
     editLangA.textContent = LANG_NAMES[card.langA] || card.langA || "A";
     editLangB.textContent = LANG_NAMES[card.langB] || card.langB || "B";
     editTextA.value = card.textA || "";
@@ -1661,13 +1672,108 @@ function openCardEdit(card) {
     renderCardMeta(card);
     renderCardScores(card);
 
+    // Header adjustments based on return target
+    if (cardEditReturnTo === "study") {
+        cardEditBackBtn.style.display = "inline-flex";
+        cardEditTitleEl.style.display = "none";
+    } else {
+        cardEditBackBtn.style.display = "none";
+        cardEditTitleEl.style.display = "block";
+    }
+
     cardEditModal.style.display = "flex";
 }
 
 function closeCardEditModal() {
     cardEditModal.style.display = "none";
+    const wasStudy = cardEditReturnTo === "study";
+    const editedId = currentEditingCardId;
     currentEditingCardId = null;
+    cardEditReturnTo = null;
     hideDeleteConfirm();
+
+    // If we came from study mode, refresh the displayed card with the latest data
+    if (wasStudy && study.active) {
+        refreshCurrentStudyCard(editedId);
+    }
+}
+
+function editCurrentCardFromStudy() {
+    if (!study.currentCard) return;
+
+    // Stop any active TTS/autoplay while editing
+    killTTS();
+    clearAutoplayTimer();
+    stopVoiceRecognition();
+    autoplayCountdown.style.display = "none";
+
+    openCardEdit(study.currentCard, { returnTo: "study" });
+}
+
+// Re-render the current study card using the latest data from cache.
+// Called after returning from card edit so text/POS/example edits take effect.
+function refreshCurrentStudyCard(cardId) {
+    if (!study.currentCard) return;
+    const id = cardId || study.currentCard.id;
+    if (!id) return;
+
+    // Pull the fresh card from cache (cardsCache is updated by confirmUpdateCard)
+    const fresh = cardsCache.find((c) => c.id === id);
+    if (!fresh) {
+        // Card was deleted
+        showToast("カードが削除されました");
+        loadNextCard();
+        return;
+    }
+
+    // Update current card reference and re-populate visible fields.
+    study.currentCard = fresh;
+
+    const [a, b] = fresh.pairKey.split("-");
+    let qLang, qText, aLang, aText;
+    if (study.direction === "a_to_b") {
+        qLang = a; qText = fresh.textA;
+        aLang = b; aText = fresh.textB;
+    } else {
+        qLang = b; qText = fresh.textB;
+        aLang = a; aText = fresh.textA;
+    }
+
+    study.currentQuestionLang = qLang;
+    study.currentAnswerLang = aLang;
+
+    questionLangTag.textContent = LANG_NAMES[qLang] || qLang;
+    questionTextEl.textContent = qText;
+    answerLangTag.textContent = LANG_NAMES[aLang] || aLang;
+    answerTextEl.textContent = aText;
+
+    const pos = fresh.partOfSpeech || "";
+    questionPosEl.style.display = "none";
+    answerPosEl.style.display = "none";
+    if (pos) {
+        if (qLang !== "ja") {
+            questionPosEl.textContent = pos;
+            questionPosEl.style.display = "inline-block";
+        }
+        if (aLang !== "ja") {
+            answerPosEl.textContent = pos;
+            // Only show if answer is currently revealed
+            if (answerBlock.style.display !== "none") {
+                answerPosEl.style.display = "inline-block";
+            }
+        }
+    }
+
+    study.currentExampleLang = fresh.langA === "ja" ? fresh.langB : fresh.langA;
+    if (fresh.example && pos !== "文") {
+        exampleTextEl.textContent = fresh.example;
+        if (answerBlock.style.display !== "none") {
+            exampleBlock.style.display = "block";
+        }
+    } else {
+        exampleTextEl.textContent = "";
+        exampleBlock.style.display = "none";
+    }
 }
 
 function renderCardMeta(card) {

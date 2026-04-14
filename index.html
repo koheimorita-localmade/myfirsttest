@@ -233,6 +233,12 @@
                     <button id="study-exit-btn" class="text-btn">終了</button>
                     <span id="session-progress" class="session-progress">0 / 0</span>
                     <div class="session-header-toggles">
+                        <button id="edit-current-card-btn" class="text-btn" aria-label="このカードを編集">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                            </svg>
+                            編集
+                        </button>
                         <button id="voice-feedback-btn" class="text-btn" aria-label="音声フィードバック">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;">
                                 <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
@@ -496,7 +502,15 @@
             <div class="modal-backdrop"></div>
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2>カードを編集</h2>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <button id="card-edit-back" class="text-btn" style="display:none; padding-left: 0;" aria-label="学習に戻る">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;">
+                                <path d="M15 18l-6-6 6-6"/>
+                            </svg>
+                            学習に戻る
+                        </button>
+                        <h2 id="card-edit-title">カードを編集</h2>
+                    </div>
                     <button id="close-card-edit" class="icon-btn" aria-label="閉じる">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M18 6L6 18M6 6l12 12"/>
