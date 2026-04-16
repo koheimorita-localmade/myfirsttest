@@ -253,7 +253,14 @@ function init() {
 }
 
 function bindEvents() {
-    sourceText.addEventListener("input", onSourceInput);
+    sourceText.addEventListener("input", () => {
+        // If user manually edits away from an inbox-linked text,
+        // sever the link so saving doesn't wrongly delete an inbox item.
+        if (pendingInboxItem && sourceText.value !== pendingInboxItem.text) {
+            pendingInboxItem = null;
+        }
+        onSourceInput();
+    });
     translateBtn.addEventListener("click", handleTranslate);
     swapBtn.addEventListener("click", swapLanguages);
     copyBtn.addEventListener("click", copyResult);
@@ -2939,7 +2946,7 @@ function renderInbox() {
                 <div class="inbox-item-text"></div>
                 ${item.note ? `<div class="inbox-item-note"></div>` : ""}
                 <div class="inbox-item-actions">
-                    <button class="inbox-process-btn">翻訳して保存</button>
+                    <button class="inbox-process-btn">翻訳する</button>
                     ${isNew ? `<button class="inbox-markread-btn">既読</button>` : ""}
                     <button class="inbox-delete-btn">削除</button>
                 </div>
@@ -3068,33 +3075,33 @@ async function processInboxItem(item) {
     updateInboxBadge();
     if (inboxView.style.display !== "none") renderInbox();
 
+    // Switch to translate view so the user gets the full 4-style output
+    // + learning notes, rather than a single-style quick translation.
+    switchMode("translate");
+
     // Determine source and target languages
     const srcLang = item.srcLang || detectSourceLang(item.text);
     const tgtLang = srcLang === "ja" ? "en" : "ja";
-    const tgtName = LANG_NAMES[tgtLang] || tgtLang;
-    const srcName = LANG_NAMES[srcLang] || srcLang;
 
-    showToast("翻訳中...");
-
-    try {
-        const prompt = `Translate the following text from ${srcName} to ${tgtName}. Output ONLY the translated text, nothing else.\n\n${item.text}`;
-        const translation = await callGemini(apiKey, prompt);
-
-        // Pre-populate state so openSaveModal picks it up naturally
-        lastSourceText = item.text;
-        lastDetectedSrcLang = srcLang;
-        currentTargetLang = tgtLang;
-        translationCache = { normal: translation, casual: "", formal: "", advanced: "", notes: "" };
-        activeStyle = "normal";
-
-        // Remember the inbox item so saving auto-removes it
-        pendingInboxItem = item;
-
-        openSaveModal();
-    } catch (error) {
-        pendingInboxItem = null;
-        showToast(`翻訳失敗: ${error.message}`);
+    // Apply language selectors (if available in dropdown)
+    if (sourceLang.querySelector(`option[value="${srcLang}"]`)) {
+        sourceLang.value = srcLang;
     }
+    if (targetLang.querySelector(`option[value="${tgtLang}"]`)) {
+        targetLang.value = tgtLang;
+    }
+    updateFavoritesHighlight();
+
+    // Pre-fill source text
+    sourceText.value = item.text;
+    onSourceInput();
+
+    // Remember the inbox context so saving as a card removes the inbox entry.
+    // Set AFTER onSourceInput so the programmatic text change doesn't clear it.
+    pendingInboxItem = item;
+
+    // Fire the full progressive translation (Normal → other 3 styles → notes)
+    handleTranslate();
 }
 
 // Called from both single-save and extract-save flows after successful DB writes
