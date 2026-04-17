@@ -14,7 +14,7 @@ const SHEET_PAIRS = "pairs";
 const SHEET_SCORES = "scores";
 const SHEET_INBOX = "inbox";
 
-const PAIRS_HEADERS = ["id", "pairKey", "langA", "textA", "langB", "textB", "style", "createdAt", "partOfSpeech", "example"];
+const PAIRS_HEADERS = ["id", "pairKey", "langA", "textA", "langB", "textB", "style", "createdAt", "partOfSpeech", "example", "context"];
 const SCORES_HEADERS = ["pairId", "direction", "easeFactor", "interval", "nextReview", "lastReviewed", "repetitions"];
 const INBOX_HEADERS = ["id", "text", "srcLang", "note", "source", "createdAt", "processed"];
 
@@ -156,7 +156,8 @@ function savePair(pair) {
     style: pair.style || "",
     createdAt,
     partOfSpeech: pair.partOfSpeech || "",
-    example: pair.example || ""
+    example: pair.example || "",
+    context: pair.context || ""
   };
   const row = headers.map(h => rowMap[h] !== undefined ? rowMap[h] : "");
   sheet.appendRow(row);

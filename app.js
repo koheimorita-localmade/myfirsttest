@@ -57,6 +57,10 @@ const copyBtn = document.getElementById("copy-btn");
 const speakBtn = document.getElementById("speak-btn");
 const clearBtn = document.getElementById("clear-btn");
 const charCount = document.getElementById("char-count");
+const contextToggleBtn = document.getElementById("context-toggle");
+const contextToggleIcon = document.getElementById("context-toggle-icon");
+const contextField = document.getElementById("context-field");
+const contextText = document.getElementById("context-text");
 const swapBtn = document.getElementById("swap-btn");
 const settingsBtn = document.getElementById("settings-btn");
 const settingsModal = document.getElementById("settings-modal");
@@ -132,6 +136,8 @@ const questionPosEl = document.getElementById("question-pos");
 const answerPosEl = document.getElementById("answer-pos");
 const exampleBlock = document.getElementById("example-block");
 const exampleTextEl = document.getElementById("example-text");
+const contextBlock = document.getElementById("context-block");
+const contextDisplayText = document.getElementById("context-display-text");
 const feedbackButtons = document.getElementById("feedback-buttons");
 const autoplayToggleBtn = document.getElementById("autoplay-toggle-btn");
 const autoplayCountdown = document.getElementById("autoplay-countdown");
@@ -173,6 +179,7 @@ const saveStyleHint = document.getElementById("save-style-hint");
 const saveSelectionNote = document.getElementById("save-selection-note");
 const saveConfirmBtn = document.getElementById("save-confirm-btn");
 const saveStatus = document.getElementById("save-status");
+const saveContextInput = document.getElementById("save-context");
 const savePosInput = document.getElementById("save-pos");
 const saveExampleInput = document.getElementById("save-example");
 const saveRegenerateBtn = document.getElementById("save-regenerate-btn");
@@ -200,6 +207,7 @@ const cardDeleteConfirm = document.getElementById("card-delete-confirm");
 const cardDeleteCancel = document.getElementById("card-delete-cancel");
 const cardDeleteExecute = document.getElementById("card-delete-execute");
 const cardEditStatus = document.getElementById("card-edit-status");
+const editContextInput = document.getElementById("edit-context");
 const editPosInput = document.getElementById("edit-pos");
 const editExampleInput = document.getElementById("edit-example");
 const editRegenerateBtn = document.getElementById("edit-regenerate-btn");
@@ -216,6 +224,7 @@ let activeStyle = "normal";
 let lastSourceText = "";
 let lastTargetLang = "";
 let lastDetectedSrcLang = null;
+let lastContext = ""; // user-supplied context/situation
 
 // DB local cache
 let cardsCache = []; // [{ id, pairKey, langA, textA, langB, textB, style, createdAt }]
@@ -262,6 +271,7 @@ function bindEvents() {
         onSourceInput();
     });
     translateBtn.addEventListener("click", handleTranslate);
+    contextToggleBtn.addEventListener("click", toggleContextField);
     swapBtn.addEventListener("click", swapLanguages);
     copyBtn.addEventListener("click", copyResult);
     clearBtn.addEventListener("click", clearInput);
@@ -446,10 +456,19 @@ function onSourceInput() {
 
 function clearInput() {
     sourceText.value = "";
+    contextText.value = "";
     onSourceInput();
     resultContainer.style.display = "none";
     translationCache = { normal: "", casual: "", formal: "", advanced: "", notes: "" };
     sourceText.focus();
+}
+
+function toggleContextField() {
+    const isOpen = contextField.style.display !== "none";
+    contextField.style.display = isOpen ? "none" : "block";
+    contextToggleBtn.classList.toggle("open", !isOpen);
+    contextToggleIcon.style.transform = isOpen ? "" : "rotate(90deg)";
+    if (!isOpen) contextText.focus();
 }
 
 function updateTranslateButton() {
@@ -557,6 +576,7 @@ async function handleTranslate() {
     lastSourceText = text;
     lastTargetLang = tgtLang;
     lastDetectedSrcLang = detectSourceLang(text);
+    lastContext = (contextText.value || "").trim();
 
     // Reset cache
     translationCache = { normal: "", casual: "", formal: "", advanced: "", notes: "" };
@@ -585,7 +605,8 @@ async function handleTranslate() {
     });
 
     // ===== Step 1: Normal translation (fastest, shown first) =====
-    const normalPrompt = `Translate ${langContext}. Output ONLY the translated text, no explanations.\n\n${text}`;
+    const contextClause = lastContext ? `\n\nContext/situation: ${lastContext}` : "";
+    const normalPrompt = `Translate ${langContext}. Output ONLY the translated text, no explanations.${contextClause}\n\n${text}`;
 
     let normalPromise = callGemini(apiKey, normalPrompt)
         .then((result) => {
@@ -605,7 +626,7 @@ async function handleTranslate() {
     // ===== Step 2: Other 3 styles (parallel with normal, in one batched call) =====
     const stylesPrompt = `You are a professional translator.
 
-Translate ${langContext} in 3 different styles.
+Translate ${langContext} in 3 different styles.${contextClause}
 
 Respond in this exact JSON format (no markdown code fences, no extra text):
 {
@@ -653,11 +674,15 @@ ${text}`;
         notesInstruction = `2-3 concise learning tips IN JAPANESE (each 1-2 sentences, keep it short) that analyze the ORIGINAL SOURCE TEXT (the input language). The reader is a Japanese learner studying the source language. Explain key grammar, vocabulary, or idioms used in the source text.`;
     }
 
+    const contextForNotes = lastContext
+        ? `\n\nThe user provided this situational context: "${lastContext}". Factor it into your notes — explain why the chosen phrasing fits this situation.`
+        : "";
+
     const notesPrompt = `You are a language tutor.
 
-First translate ${langContext}, then write learning notes.
+First translate ${langContext}, then write learning notes.${contextClause}
 
-${notesInstruction}
+${notesInstruction}${contextForNotes}
 
 Output ONLY the notes as HTML (use <p> for paragraphs and <strong> for important terms). No other text.
 
@@ -1291,6 +1316,7 @@ function openSaveModal() {
     updateSaveLangLabels();
     saveSrcText.value = srcText;
     saveTgtText.value = tgtText;
+    saveContextInput.value = lastContext || "";
     savePosInput.value = "";
     saveExampleInput.value = "";
     saveRegenerateBtn.style.display = "none";
@@ -1384,6 +1410,7 @@ async function confirmSaveCard() {
         style: activeStyle,
         partOfSpeech: savePosInput.value.trim(),
         example: saveExampleInput.value.trim(),
+        context: saveContextInput.value.trim(),
     };
 
     saveStatus.textContent = "保存中...";
@@ -1859,6 +1886,7 @@ function openCardEdit(card, opts = {}) {
     editTextA.value = card.textA || "";
     editTextB.value = card.textB || "";
     editStyleInput.value = card.style || "";
+    editContextInput.value = card.context || "";
     editPosInput.value = card.partOfSpeech || "";
     editExampleInput.value = card.example || "";
 
@@ -1959,6 +1987,14 @@ function refreshCurrentStudyCard(cardId) {
                 answerPosEl.style.display = "inline-block";
             }
         }
+    }
+
+    // Context
+    contextDisplayText.textContent = fresh.context || "";
+    if (fresh.context && answerBlock.style.display !== "none") {
+        contextBlock.style.display = "flex";
+    } else {
+        contextBlock.style.display = "none";
     }
 
     study.currentExampleLang = fresh.langA === "ja" ? fresh.langB : fresh.langA;
@@ -2100,6 +2136,7 @@ async function confirmUpdateCard() {
     const textA = editTextA.value.trim();
     const textB = editTextB.value.trim();
     const style = editStyleInput.value.trim();
+    const context = editContextInput.value.trim();
     const partOfSpeech = editPosInput.value.trim();
     const example = editExampleInput.value.trim();
     if (!textA || !textB) {
@@ -2113,13 +2150,14 @@ async function confirmUpdateCard() {
     cardEditStatus.className = "key-status";
 
     try {
-        await dbUpdatePair({ id: currentEditingCardId, textA, textB, style, partOfSpeech, example });
+        await dbUpdatePair({ id: currentEditingCardId, textA, textB, style, context, partOfSpeech, example });
         // Update local cache
         const card = cardsCache.find((c) => c.id === currentEditingCardId);
         if (card) {
             card.textA = textA;
             card.textB = textB;
             card.style = style;
+            card.context = context;
             card.partOfSpeech = partOfSpeech;
             card.example = example;
         }
@@ -2429,6 +2467,10 @@ function loadNextCard() {
         }
     }
 
+    // Context: only revealed at answer time
+    contextBlock.style.display = "none";
+    contextDisplayText.textContent = card.context || "";
+
     // Example sentence: only revealed at answer time (regardless of direction)
     study.currentExampleLang = card.langA === "ja" ? card.langB : card.langA;
     exampleBlock.style.display = "none";
@@ -2470,6 +2512,11 @@ function revealAnswer() {
     // Show POS on the answer side if it belongs there
     if (answerPosEl.textContent) {
         answerPosEl.style.display = "inline-block";
+    }
+
+    // Show context if available (always at answer reveal)
+    if (contextDisplayText.textContent) {
+        contextBlock.style.display = "flex";
     }
 
     // Show example sentence (always at answer reveal — never at question to avoid hints)

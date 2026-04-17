@@ -192,6 +192,91 @@ body {
     padding: 6px;
 }
 
+/* Context field (collapsible) */
+.context-toggle-wrapper {
+    padding: 4px 0;
+}
+
+.context-toggle-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    padding: 4px 0;
+    transition: color var(--transition);
+}
+
+.context-toggle-btn:hover {
+    color: var(--primary);
+}
+
+.context-toggle-btn.open {
+    color: var(--primary);
+}
+
+.context-field {
+    margin-bottom: 4px;
+    animation: fadeIn 0.2s ease;
+}
+
+.context-field textarea {
+    min-height: 50px;
+    font-size: 14px;
+    border-color: var(--primary-light);
+    background: #fefcf8;
+}
+
+.context-field textarea:focus {
+    border-color: var(--primary);
+    background: var(--surface);
+}
+
+.save-context-field {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-family: inherit;
+    background: #fefcf8;
+    color: var(--text);
+    resize: vertical;
+    min-height: 44px;
+}
+
+.save-context-field:focus {
+    outline: none;
+    border-color: var(--primary);
+    background: var(--surface);
+}
+
+/* Context display in study mode */
+.flashcard-context {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 14px;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 10px;
+    margin-bottom: 4px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    animation: fadeIn 0.3s ease;
+}
+
+.context-icon {
+    flex-shrink: 0;
+    font-size: 16px;
+}
+
+.context-display-text {
+    flex: 1;
+}
+
 /* Input Tools */
 .input-tools {
     display: flex;
