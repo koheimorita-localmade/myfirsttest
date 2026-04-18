@@ -3276,7 +3276,7 @@ const GAME_DEFAULTS = {
     gameMissPenalty: "none",
     gameCardFilter: "all",
 };
-const FALL_DURATIONS = { slow: 10000, normal: 6000, fast: 3500 };
+const FALL_DURATIONS = { slow: 16000, normal: 11000, fast: 7000 };
 const SPAWN_INTERVAL_BASE = 3500;
 const MAX_WORDS_ON_SCREEN = 5;
 const MISS_PENALTY_POINTS = 5;
@@ -3324,8 +3324,17 @@ function renderGameSetup() {
 }
 
 // ---- Card filtering ----
+function isWordOrPhrase(text) {
+    if (!text) return false;
+    if (/[.!?]$/.test(text.trim())) return false;
+    return text.trim().split(/\s+/).length <= 6;
+}
+
 function getGameCards() {
-    let cards = cardsCache.filter((c) => c.langA === "en" || c.langB === "en");
+    let cards = cardsCache.filter((c) => {
+        const enText = c.langA === "en" ? c.textA : c.langB === "en" ? c.textB : null;
+        return enText && isWordOrPhrase(enText);
+    });
     if (gameSettings.gameCardFilter === "due") {
         cards = cards.filter((c) => {
             const s = scoresCache.find((sc) => sc.pairId === c.id);
