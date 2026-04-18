@@ -3276,7 +3276,7 @@ const GAME_DEFAULTS = {
     gameMissPenalty: "none",
     gameCardFilter: "all",
 };
-const FALL_DURATIONS = { slow: 16000, normal: 11000, fast: 7000 };
+const FALL_DURATIONS = { slow: 22000, normal: 16000, fast: 10000 };
 const SPAWN_INTERVAL_BASE = 3500;
 const MAX_WORDS_ON_SCREEN = 5;
 const MISS_PENALTY_POINTS = 5;
@@ -3324,16 +3324,10 @@ function renderGameSetup() {
 }
 
 // ---- Card filtering ----
-function isWordOrPhrase(text) {
-    if (!text) return false;
-    if (/[.!?]$/.test(text.trim())) return false;
-    return text.trim().split(/\s+/).length <= 6;
-}
-
 function getGameCards() {
     let cards = cardsCache.filter((c) => {
-        const enText = c.langA === "en" ? c.textA : c.langB === "en" ? c.textB : null;
-        return enText && isWordOrPhrase(enText);
+        if (c.langA !== "en" && c.langB !== "en") return false;
+        return (c.partOfSpeech || "") !== "文";
     });
     if (gameSettings.gameCardFilter === "due") {
         cards = cards.filter((c) => {
@@ -3578,11 +3572,7 @@ function startGameSpeech() {
             if (event.results[i].isFinal) final += t;
             else interim += t;
         }
-        const el = document.getElementById("game-transcript");
-        if (el) {
-            el.textContent = final || interim || "...";
-            el.style.opacity = final ? "1" : "0.6";
-        }
+        setTranscript(final || interim || "...", !final);
         if (final && gameState?.running && !gameJudging) {
             const now = Date.now();
             if (now - gameState.lastGeminiCallTime > GEMINI_COOLDOWN_MS) {
@@ -3625,42 +3615,74 @@ function updateMicIndicator(active) {
 }
 
 // ---- Gemini judgment ----
+function setTranscript(text, dim = false) {
+    const el = document.getElementById("game-transcript");
+    if (el) { el.textContent = text; el.style.opacity = dim ? "0.6" : "1"; }
+}
+
 async function judgeWithGemini(transcript) {
     if (!gameState || gameState.fallingWords.length === 0) return;
     gameJudging = true;
     const apiKey = getApiKey();
     if (!apiKey) { gameJudging = false; return; }
 
-    const wordList = gameState.fallingWords.map((w) => w.text);
-    const prompt = `You are judging an English speaking game. The player must speak a complete English sentence using at least one target word/phrase.
+    setTranscript("判定中...", true);
 
-Target words/phrases on screen:
-${wordList.map((w) => `- "${w}"`).join("\n")}
+    const wordList = gameState.fallingWords.map((w) => ({ id: w.id, text: w.text }));
+    const prompt = `You judge an English speaking game. The player sees words/phrases falling on screen and must say a complete English sentence that uses at least one of them.
+
+Target words/phrases (use the exact text in your response):
+${wordList.map((w) => `- "${w.text}"`).join("\n")}
 
 Player said: "${transcript}"
 
-Evaluate and respond with JSON only (no markdown):
-- "matches": array of target texts that appear in a grammatically complete sentence
-- "score": 0=no valid match or incomplete sentence, 1=simple complete sentence, 2=natural/varied sentence, 3=complex/creative sentence
+A sentence is complete if it has a subject and a verb (even short sentences like "I love it." count).
 
-{"matches":[],"score":0,"reason":""}`;
+Return JSON only, no markdown fences:
+{"matches":["exact target text used"],"score":0}
+
+score: 0=no complete sentence / no target word used, 1=basic complete sentence, 2=natural fluent sentence, 3=complex or creative sentence
+matches: list only the exact target texts from the list above that appear in a complete sentence`;
 
     try {
-        const raw = await callGemini(apiKey, prompt);
-        const jsonStr = raw.match(/\{[\s\S]*\}/)?.[0];
-        if (!jsonStr) { gameJudging = false; return; }
+        const res = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                    temperature: 0.1,
+                    maxOutputTokens: 200,
+                    responseMimeType: "application/json",
+                },
+            }),
+        });
+
+        if (!res.ok) { gameJudging = false; setTranscript(transcript); return; }
+
+        const data = await res.json();
+        const raw = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+        const jsonStr = raw.match(/\{[\s\S]*\}/)?.[0] || raw;
         const result = JSON.parse(jsonStr);
 
-        if (result.matches?.length > 0 && result.score > 0) {
+        if (result.score > 0 && result.matches?.length > 0) {
+            let anyHit = false;
             result.matches.forEach((matchText) => {
+                const lower = matchText.toLowerCase();
                 const word = gameState?.fallingWords.find(
-                    (w) => w.text.toLowerCase() === matchText.toLowerCase() ||
-                           matchText.toLowerCase().includes(w.text.toLowerCase())
+                    (w) => w.text.toLowerCase() === lower ||
+                           lower.includes(w.text.toLowerCase()) ||
+                           w.text.toLowerCase().includes(lower)
                 );
-                if (word) hitWord(word.id, result.score);
+                if (word) { hitWord(word.id, result.score); anyHit = true; }
             });
+            setTranscript(anyHit ? `${"★".repeat(result.score)} ${transcript}` : transcript);
+        } else {
+            setTranscript(transcript);
         }
-    } catch (_) {}
+    } catch (e) {
+        setTranscript(transcript);
+    }
 
     gameJudging = false;
 }
