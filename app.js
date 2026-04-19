@@ -3634,6 +3634,43 @@ function updateMicIndicator(active) {
     if (el) el.classList.toggle("active", active);
 }
 
+// ---- Fuzzy word matching ----
+function levenshtein(a, b) {
+    if (a === b) return 0;
+    if (!a.length) return b.length;
+    if (!b.length) return a.length;
+    const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+        let prev = i;
+        for (let j = 1; j <= b.length; j++) {
+            const cur = a[i - 1] === b[j - 1] ? row[j - 1] : 1 + Math.min(row[j - 1], row[j], prev);
+            row[j - 1] = prev;
+            prev = cur;
+        }
+        row[b.length] = prev;
+    }
+    return row[b.length];
+}
+
+function fuzzyMatch(transcript, cardText) {
+    const tLower = transcript.toLowerCase();
+    const cLower = cardText.toLowerCase();
+    if (tLower.includes(cLower)) return true;
+
+    const tWords = tLower.split(/\W+/).filter(Boolean);
+    const cWords = cLower.split(/\W+/).filter(Boolean);
+
+    return cWords.every((cw) => {
+        // Max edit distance: 1 for short words, 2 for long
+        const maxDist = cw.length <= 4 ? 1 : cw.length <= 8 ? 1 : 2;
+        return tWords.some((tw) => {
+            // Short words: first char must agree to avoid false positives
+            if (cw.length <= 4 && tw[0] !== cw[0]) return false;
+            return levenshtein(cw, tw) <= maxDist;
+        });
+    });
+}
+
 // ---- Gemini judgment ----
 function setTranscript(text, dim = false) {
     const el = document.getElementById("game-transcript");
@@ -3646,10 +3683,9 @@ async function judgeWithGemini(transcript) {
     const apiKey = getApiKey();
     if (!apiKey) { gameJudging = false; return; }
 
-    // Step 1: local string match — reliable, no API needed
-    const tLower = transcript.toLowerCase();
+    // Step 1: fuzzy match (exact substring + Levenshtein fallback)
     const localMatches = gameState.fallingWords.filter((w) =>
-        tLower.includes(w.text.toLowerCase())
+        fuzzyMatch(transcript, w.text)
     );
 
     if (localMatches.length === 0) {
