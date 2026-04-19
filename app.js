@@ -3367,14 +3367,22 @@ async function startGame() {
         return;
     }
 
+    const isJaEnMode = gameSettings.gameMode === "ja-en";
     const wordPool = [...cards]
         .sort(() => Math.random() - 0.5)
-        .map((c) => ({
-            text: getEnglishText(c),
-            jaText: c.langA === "ja" ? c.textA : c.langB === "ja" ? c.textB : "",
-            example: c.example || "",
-        }))
-        .filter((e) => e.text);
+        .map((c) => {
+            const enText = getEnglishText(c);
+            const jaText = c.langA === "ja" ? c.textA : c.langB === "ja" ? c.textB : "";
+            if (!enText) return null;
+            if (isJaEnMode && !jaText) return null; // JA→EN needs Japanese text
+            return {
+                displayText: isJaEnMode ? jaText : enText,
+                enText,
+                jaText,
+                example: c.example || "",
+            };
+        })
+        .filter(Boolean);
 
     gameState = {
         wordPool,
@@ -3449,11 +3457,11 @@ function spawnWord() {
     const field = document.getElementById("game-field");
     if (!field) return;
 
-    const { text, jaText, example } = entry;
+    const { displayText, enText, jaText, example } = entry;
     const id = `w-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const el = document.createElement("div");
     el.className = "falling-word";
-    el.textContent = text;
+    el.textContent = displayText;
     el.dataset.wid = id;
     field.appendChild(el);
 
@@ -3462,7 +3470,7 @@ function spawnWord() {
     el.style.left = x + "px";
     el.style.top = "-50px";
 
-    gameState.fallingWords.push({ id, text, jaText, example, el, y: -50 });
+    gameState.fallingWords.push({ id, text: displayText, enText, jaText, example, el, y: -50 });
     gameState.lastSpawnTime = Date.now();
 }
 
@@ -3471,7 +3479,7 @@ function missWord(word) {
     gameState.fallingWords = gameState.fallingWords.filter((w) => w.id !== word.id);
     if (word.el.parentNode) word.el.parentNode.removeChild(word.el);
     gameState.misses++;
-    gameState.missedWords.push({ text: word.text, jaText: word.jaText || "", example: word.example || "" });
+    gameState.missedWords.push({ text: word.enText || word.text, jaText: word.jaText || "", example: word.example || "" });
 
     if (gameSettings.gameMissPenalty === "penalty") {
         gameState.score = Math.max(0, gameState.score - MISS_PENALTY_POINTS);
@@ -3712,60 +3720,132 @@ function setTranscript(text, dim = false) {
     if (el) { el.textContent = text; el.style.opacity = dim ? "0.6" : "1"; }
 }
 
+async function callGeminiRaw(apiKey, prompt) {
+    const res = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 80 },
+        }),
+    });
+    if (!res.ok) return "";
+    const data = await res.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+}
+
 async function judgeWithGemini(transcript) {
     if (!gameState || gameState.fallingWords.length === 0) return;
     gameJudging = true;
     const apiKey = getApiKey();
     if (!apiKey) { gameJudging = false; return; }
 
-    // Step 1: fuzzy match (exact substring + Levenshtein fallback)
-    const localMatches = gameState.fallingWords.filter((w) =>
-        fuzzyMatch(transcript, w.text)
-    );
+    const isJaEn = gameSettings.gameMode === "ja-en";
 
-    if (localMatches.length === 0) {
-        setTranscript(transcript);
-        gameJudging = false;
-        return;
+    if (isJaEn) {
+        await judgeJaEn(transcript, apiKey);
+    } else {
+        await judgeEnEn(transcript, apiKey);
     }
+    gameJudging = false;
+}
+
+// EN→EN: fuzzy string match first, then Gemini for quality score
+async function judgeEnEn(transcript, apiKey) {
+    const localMatches = gameState.fallingWords.filter((w) =>
+        fuzzyMatch(transcript, w.enText || w.text)
+    );
+    if (localMatches.length === 0) { setTranscript(transcript); return; }
 
     setTranscript("判定中...", true);
-
-    // Step 2: Gemini scores sentence quality only (matches already known)
     const prompt = `Rate the quality of this English sentence on a scale of 1 to 3.
-1 = grammatically complete but very simple (e.g. "This is a cat.")
+1 = grammatically complete but very simple
 2 = natural, varied vocabulary, good grammar
 3 = complex, creative, or impressive sentence
-
 Sentence: "${transcript}"
-
 Reply with JSON only: {"score":1}`;
 
     let score = 1;
     try {
-        const res = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { temperature: 0.1, maxOutputTokens: 50 },
-            }),
-        });
-        if (res.ok) {
-            const data = await res.json();
-            const raw = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
-            const m = raw.match(/"score"\s*:\s*([123])/);
-            if (m) score = Number(m[1]);
-        }
+        const raw = await callGeminiRaw(apiKey, prompt);
+        const m = raw.match(/"score"\s*:\s*([123])/);
+        if (m) score = Number(m[1]);
     } catch (_) {}
 
     localMatches.forEach((w) => {
-        if (gameState?.fallingWords.find((fw) => fw.id === w.id)) {
-            hitWord(w.id, score);
-        }
+        if (gameState?.fallingWords.find((fw) => fw.id === w.id)) hitWord(w.id, score);
     });
     setTranscript(`${"★".repeat(score)} ${transcript}`);
-    gameJudging = false;
+}
+
+// JA→EN: local fast-path (registered translation), then Gemini for any valid translation
+async function judgeJaEn(transcript, apiKey) {
+    // Fast path: registered English translation matches
+    const fastMatches = gameState.fallingWords.filter((w) =>
+        w.enText && fuzzyMatch(transcript, w.enText)
+    );
+
+    if (fastMatches.length > 0) {
+        setTranscript("判定中...", true);
+        const prompt = `Rate the quality of this English sentence on a scale of 1 to 3.
+1 = simple but correct
+2 = natural, varied vocabulary
+3 = complex or creative expression
+Sentence: "${transcript}"
+Reply with JSON only: {"score":1}`;
+        let score = 1;
+        try {
+            const raw = await callGeminiRaw(apiKey, prompt);
+            const m = raw.match(/"score"\s*:\s*([123])/);
+            if (m) score = Number(m[1]);
+        } catch (_) {}
+        fastMatches.forEach((w) => {
+            if (gameState?.fallingWords.find((fw) => fw.id === w.id)) hitWord(w.id, score);
+        });
+        setTranscript(`${"★".repeat(score)} ${transcript}`);
+        return;
+    }
+
+    // Slow path: ask Gemini whether each falling word matches the transcript
+    setTranscript("判定中...", true);
+    const candidates = gameState.fallingWords.slice(0, 3); // limit to avoid too-long prompts
+    const wordList = candidates.map((w, i) => `${i + 1}. "${w.text}" (registered: "${w.enText || ""}")`).join("\n");
+
+    const prompt = `You are judging a Japanese-to-English translation game.
+The learner said: "${transcript}"
+
+For each Japanese word/phrase below, determine if the learner's English correctly expresses its meaning.
+Accept any valid English equivalent — it does not have to match the registered translation exactly.
+
+${wordList}
+
+Reply with JSON only, listing which indices matched and the sentence quality score:
+{"matches":[1,2],"score":1}
+- matches: array of 1-based indices that were correctly translated (empty array if none)
+- score: 1 (simple/correct) | 2 (natural) | 3 (complex/creative)`;
+
+    try {
+        const raw = await callGeminiRaw(apiKey, prompt);
+        const matchM = raw.match(/"matches"\s*:\s*\[([^\]]*)\]/);
+        const scoreM = raw.match(/"score"\s*:\s*([123])/);
+        const score = scoreM ? Number(scoreM[1]) : 1;
+        const indices = matchM
+            ? matchM[1].split(",").map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n))
+            : [];
+
+        if (indices.length === 0) {
+            setTranscript(transcript);
+            return;
+        }
+
+        indices.forEach((idx) => {
+            const w = candidates[idx - 1];
+            if (w && gameState?.fallingWords.find((fw) => fw.id === w.id)) hitWord(w.id, score);
+        });
+        setTranscript(`${"★".repeat(score)} ${transcript}`);
+    } catch (_) {
+        setTranscript(transcript);
+    }
 }
 
 // ---- Start ----
