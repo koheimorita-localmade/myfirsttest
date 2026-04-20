@@ -4,6 +4,50 @@
 
 ---
 
+### 2026-04-20 — デッキ機能追加・音声判定キュー化・clasp連携確立 (v2.1→v2.3)
+
+**Agent**: Claude
+
+### What was done
+- **v2.1（音声判定改善）**: Codexレビューを受け以下を実装
+  - `gameJudging`フラグ廃止 → `judgeQueue` + `processJudgeQueue()` に置き換え。発話の欠落ゼロ
+  - `gameSpeechRecognition.maxAlternatives = 3` に設定し全候補をキューへ投入
+  - `normalizeTranscript()` で短縮形・冠詞・フィラーを除去してfuzzyMatch精度向上
+  - cooldownを入口から除去しAPI呼び出し側（400ms間隔）に移動
+  - `callGeminiRaw` を `responseMimeType: "application/json"` + `JSON.parse` に統一
+- **v2.2（デッキ機能）**:
+  - GAS: `decks`シート新設（`id/name/createdAt`）、`pairs`シートに`deck`カラム追加（auto-migration）
+  - `listAll` レスポンスに `decks` を追加
+  - `saveDeck` / `updateDeck` / `deleteDeck` GASエンドポイント追加
+  - フロント: チップ形式のデッキフィルター（複数選択・「すべて」トグル）をカード/ゲーム/学習の3箇所に実装
+  - カードタブ「デッキ管理」モーダル（追加・リネーム・削除、削除時は未分類へ移動）
+  - カード編集モーダルにデッキ選択 + 「+ 新規」インライン作成
+  - 選択モードに「デッキ変更」一括操作を追加
+  - `filterByDeck()` をゲーム/学習のカード取得にも適用
+- **v2.3（バグ修正）**: デッキフィルターのクロージャ問題（2回目以降クリック無効）修正
+  - イベント委譲方式（コンテナに1リスナー）に変更
+  - クリック時に常にグローバル変数を直接読む設計に
+- **clasp連携確立**: GASデプロイを `clasp push && clasp deploy` 1コマンドで完結するよう整備
+  - `.clasp.json` 設定済み・ログイン済みを確認
+  - `deploymentId` を CLAUDE.md に記録
+  - 本番デプロイ @ バージョン5 まで更新済み
+
+### Current state
+- ゲーム・学習・カード・翻訳・受信すべての機能が正常動作
+- デッキ機能はv2.3で実装済み。フィルター複数選択の修正版をpush済み（iPhone実機未確認）
+- GASデプロイはclaspで即時可能
+
+### Next steps
+- [ ] iPhone実機でデッキフィルターの複数選択動作確認
+- [ ] デッキ名表示がカードリストのアイテムにも見えると便利かもしれない（要検討）
+- [ ] JA→ENゲームモードのiOS実機テスト（v2.0以来未確認）
+
+### Open issues
+- hookによるバージョン自動インクリメントは現セッション内では動作しない（セッション再起動後に有効になる）。現状は手動でver更新してコミット
+- iOS Safari の `isFinal` 不発問題はdebounce(700ms)で暫定対応中
+
+---
+
 ### 2026-04-19 — ゲームモード多機能化・日→英モード実装 (v1.8→v2.0)
 
 **Agent**: Claude

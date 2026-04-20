@@ -19,7 +19,7 @@
 | フロント | Vanilla JS + HTML + CSS（ビルドステップなし、静的配信） |
 | ホスティング | GitHub Pages（`main` ブランチから配信、GitHub Actions で自動デプロイ） |
 | バックエンド | Google Apps Script Web App（デプロイ種別: ウェブアプリ） |
-| データベース | Google Sheets（シート3枚: `pairs` / `scores` / `inbox`） |
+| データベース | Google Sheets（シート4枚: `pairs` / `scores` / `inbox` / `decks`） |
 | AI | Gemini 2.5 Flash（翻訳 / 品詞判定 / 例文生成 / 学習メモ / OCR） |
 | 音声 | Web Speech API（SpeechRecognition / SpeechSynthesis） |
 
@@ -31,8 +31,8 @@
 ├── style.css               # 全スタイル
 ├── app.js                  # アプリロジック（約3,100行、ドメインごとにセクション分割）
 ├── apps_script/
-│   ├── Code.gs             # GAS Web App ソース（pairs/scores/inboxのCRUD）
-│   └── README.md           # GAS デプロイ手順
+│   ├── Code.js             # GAS Web App ソース（pairs/scores/inbox/decksのCRUD）
+│   └── appsscript.json     # GAS マニフェスト（clasp管理）
 ├── docs/
 │   └── SHORTCUTS.md        # iOSショートカット / Alfred 連携レシピ
 ├── .github/workflows/
@@ -95,6 +95,14 @@
 | partOfSpeech | 品詞（名詞/動詞/句/文 等） |
 | example | ターゲット言語の例文 |
 | context | 文脈・補足（任意） |
+| deck | 所属デッキのID（空文字 = 未分類） |
+
+### decks シート（デッキ定義）
+| カラム | 意味 |
+|---|---|
+| id | UUID |
+| name | デッキ名 |
+| createdAt | ISO8601 |
 
 ### scores シート（SM-2スコア、方向別）
 | カラム | 意味 |
@@ -126,10 +134,11 @@
 3. GitHub Actions が自動でビルド・デプロイ（通常1〜2分）
 
 ### Apps Script（変更時のみ）
-1. `apps_script/Code.gs` を編集
-2. Apps Script エディタ（スプレッドシートから「拡張機能 > Apps Script」）でコードを全置換
-3. 「デプロイ > デプロイを管理 > 鉛筆アイコン > バージョン: 新しいバージョン > デプロイ」
-4. URL は変わらないのでアプリ側の設定変更は不要
+`apps_script/Code.js` を編集後、claspで1コマンドデプロイ：
+```bash
+clasp push && clasp deploy --deploymentId AKfycby_nlACo4deB_VEuxTCv8uQWta7ifcf28RCaLk523UwMRqe2v4iCKrWz8ZEhwi7CUBD --description "vX.X 説明"
+```
+URL は変わらないのでアプリ側の設定変更は不要。
 
 ## ユーザー側の初期設定
 
