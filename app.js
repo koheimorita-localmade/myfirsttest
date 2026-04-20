@@ -1771,64 +1771,91 @@ function getDecksWithUnassigned() {
 // Render chip-based deck filter into a container element.
 // selectedFilter: Set<id> | null (null = all)
 // onChange: (newFilter: Set<id> | null) => void
-function renderDeckFilterChips(containerId, selectedFilter, onChange) {
+// containerId のコンテナにイベント委譲方式でデッキチップを描画する。
+// getFilter/setFilter はグローバル変数を直接読み書きするため、クロージャの古い状態問題が起きない。
+function renderDeckFilterChips(containerId, getFilter, setFilter, onFilterChange) {
     const container = document.getElementById(containerId);
     if (!container) return;
-    container.innerHTML = "";
 
+    // チップ DOM だけ更新（リスナーはコンテナに1つだけ保持）
+    _updateDeckChipDom(container, getFilter());
+
+    // コンテナへのリスナーは初回のみ設定（data属性で識別）
+    if (!container.dataset.deckListenerAttached) {
+        container.dataset.deckListenerAttached = "1";
+        container.addEventListener("click", (e) => {
+            const chip = e.target.closest(".deck-chip");
+            if (!chip) return;
+            const deckId = chip.dataset.deckId; // "__all__" or actual id
+            const current = getFilter();
+
+            let next;
+            if (deckId === "__all__") {
+                next = null;
+            } else if (current === null) {
+                next = new Set([deckId]);
+            } else {
+                const s = new Set(current);
+                if (s.has(deckId)) {
+                    s.delete(deckId);
+                    next = s.size === 0 ? null : s;
+                } else {
+                    s.add(deckId);
+                    const visible = getDecksWithUnassigned().filter((x) => getDeckCardCount(x.id) > 0 || x.id === "");
+                    next = s.size >= visible.length ? null : s;
+                }
+            }
+            setFilter(next);
+            _updateDeckChipDom(container, next);
+            onFilterChange();
+        });
+    } else {
+        // 既にリスナーあり。DOM更新だけ済んでいる
+    }
+}
+
+function _updateDeckChipDom(container, selectedFilter) {
+    container.innerHTML = "";
     const decks = getDecksWithUnassigned();
     const allSelected = selectedFilter === null;
 
     const allChip = document.createElement("button");
     allChip.className = "deck-chip" + (allSelected ? " active" : "");
     allChip.textContent = "すべて";
-    allChip.addEventListener("click", () => onChange(null));
+    allChip.dataset.deckId = "__all__";
     container.appendChild(allChip);
 
     decks.forEach((d) => {
         const count = getDeckCardCount(d.id);
-        if (count === 0 && d.id !== "") return; // hide empty named decks; always show 未分類
+        if (count === 0 && d.id !== "") return;
         const chip = document.createElement("button");
         const isActive = !allSelected && selectedFilter.has(d.id);
         chip.className = "deck-chip" + (isActive ? " active" : "");
         chip.textContent = `${d.name} (${count})`;
-        chip.addEventListener("click", () => {
-            if (allSelected) {
-                // Switch from all → only this deck
-                onChange(new Set([d.id]));
-            } else {
-                const next = new Set(selectedFilter);
-                if (next.has(d.id)) {
-                    next.delete(d.id);
-                    onChange(next.size === 0 ? null : next);
-                } else {
-                    next.add(d.id);
-                    // If all decks selected, revert to null (all)
-                    const totalDecks = decks.filter((x) => getDeckCardCount(x.id) > 0 || x.id === "").length;
-                    onChange(next.size >= totalDecks ? null : next);
-                }
-            }
-        });
+        chip.dataset.deckId = d.id; // "" for 未分類
         container.appendChild(chip);
     });
 }
 
 function renderAllDeckFilters() {
-    renderDeckFilterChips("cards-deck-filter", cardsDeckFilter, (f) => {
-        cardsDeckFilter = f;
-        renderCards();
-        renderAllDeckFilters();
-    });
-    renderDeckFilterChips("game-deck-filter", gameDeckFilter, (f) => {
-        gameDeckFilter = f;
-        renderGameSetup();
-        renderAllDeckFilters();
-    });
-    renderDeckFilterChips("study-deck-filter", studyDeckFilter, (f) => {
-        studyDeckFilter = f;
-        updateStudyStats();
-        renderAllDeckFilters();
-    });
+    renderDeckFilterChips(
+        "cards-deck-filter",
+        () => cardsDeckFilter,
+        (f) => { cardsDeckFilter = f; },
+        () => renderCards()
+    );
+    renderDeckFilterChips(
+        "game-deck-filter",
+        () => gameDeckFilter,
+        (f) => { gameDeckFilter = f; },
+        () => renderGameSetup()
+    );
+    renderDeckFilterChips(
+        "study-deck-filter",
+        () => studyDeckFilter,
+        (f) => { studyDeckFilter = f; },
+        () => updateStudyStats()
+    );
 }
 
 function filterByDeck(cards, deckFilter) {
